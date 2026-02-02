@@ -30,7 +30,8 @@
       "Bash(else echo -n \"Tentative $i/30... \")",
       "Bash(ls:*)",
       "Bash(sudo mkdir:*)",
-      "Bash(sudo cp:*)"
+      "Bash(sudo cp:*)",
+      "Bash(git add:*)"
     ]
   }
 }
