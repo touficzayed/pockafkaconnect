@@ -110,6 +110,45 @@ public class PGPFileEncryptor {
     }
 
     /**
+     * Encrypt a file using streaming PGP (constant memory usage regardless of file size).
+     *
+     * @param inputFile Path to the input file
+     * @param outputFile Path to the encrypted output file
+     * @param publicKeyFile Path to the PGP public key file
+     * @param armor Whether to use ASCII armor
+     * @throws PGPEncryptionHandler.PGPException if encryption fails
+     */
+    public void encryptFileStreaming(String inputFile, String outputFile, String publicKeyFile, boolean armor)
+            throws PGPEncryptionHandler.PGPException {
+
+        log.info("Streaming-encrypting file {} to {}", inputFile, outputFile);
+
+        try {
+            PGPPublicKey publicKey = handler.loadPublicKey(publicKeyFile);
+
+            try (java.io.OutputStream fileOut = new java.io.BufferedOutputStream(
+                        Files.newOutputStream(Paths.get(outputFile)));
+                 PGPOutputStreamWrapper pgpOut = new PGPOutputStreamWrapper(fileOut, publicKey, armor);
+                 java.io.InputStream fileIn = new java.io.BufferedInputStream(
+                        Files.newInputStream(Paths.get(inputFile)))) {
+
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                long totalBytes = 0;
+                while ((bytesRead = fileIn.read(buffer)) != -1) {
+                    pgpOut.write(buffer, 0, bytesRead);
+                    totalBytes += bytesRead;
+                }
+
+                log.info("Successfully stream-encrypted {} bytes from {} to {}", totalBytes, inputFile, outputFile);
+            }
+
+        } catch (IOException e) {
+            throw new PGPEncryptionHandler.PGPException("Failed to stream-encrypt file", e);
+        }
+    }
+
+    /**
      * Encrypt a file in-place (replaces original with encrypted version).
      *
      * @param file Path to the file

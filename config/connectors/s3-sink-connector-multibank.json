@@ -2,7 +2,7 @@
   "name": "banking-s3-sink-multibank",
   "config": {
     "connector.class": "io.confluent.connect.s3.S3SinkConnector",
-    "tasks.max": "3",
+    "tasks.max": "20",
     "topics": "payments-in",
 
     "s3.bucket.name": "banking-payments",
@@ -22,6 +22,7 @@
     "partitioner.default.institution": "UNKNOWN",
     "partitioner.default.event.type": "UNCLASSIFIED",
     "partitioner.default.event.version": "v0",
+    "partitioner.bank.partition.mapping.file": "/config/banks/bank-partition-mapping.csv",
 
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",

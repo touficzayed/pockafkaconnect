@@ -130,6 +130,33 @@ public class BankPGPEncryptor {
     }
 
     /**
+     * Create a streaming PGP encryption wrapper for a specific bank.
+     * Data written to the returned stream is encrypted on the fly.
+     *
+     * @param bankCode Bank institution code (e.g., "BNK001")
+     * @param target The underlying output stream to write encrypted data to
+     * @return A PGPOutputStreamWrapper, or the original stream if PGP is disabled for this bank
+     * @throws PGPEncryptionHandler.PGPException if encryption setup fails
+     */
+    public java.io.OutputStream createStreamingEncryptorForBank(String bankCode, java.io.OutputStream target)
+            throws PGPEncryptionHandler.PGPException {
+
+        BankConfigManager.BankConfig config = configManager.getConfig(bankCode);
+        BankConfigManager.PGPConfig pgpConfig = config.getPgpConfig();
+
+        if (pgpConfig == null || !pgpConfig.isEnabled()) {
+            log.debug("PGP not enabled for bank {}, returning passthrough stream", bankCode);
+            return target;
+        }
+
+        PGPPublicKey publicKey = getPublicKey(bankCode, pgpConfig.getPublicKeyPath());
+        boolean armor = pgpConfig.isArmor();
+
+        log.info("Creating streaming PGP encryptor for bank {} (armor={})", bankCode, armor);
+        return pgpHandler.createStreamingEncryptor(target, publicKey, armor);
+    }
+
+    /**
      * Encrypt a file for a specific bank.
      *
      * @param bankCode Bank institution code

@@ -1,0 +1,15 @@
+# Bank to Kafka partition deterministic mapping
+# Format: bankCode,partitionNumber
+# 20 partitions total, ~10 banks per partition at 200 banks
+#
+# Partitions 0-4: existing banks
+BNK001,0
+BNK002,1
+BNK003,2
+BNK004,3
+BNK005,4
+#
+# Extend this file as new banks are onboarded.
+# Banks not listed here will fall back to Murmur2 hashing.
+# To generate a balanced mapping for N banks across 20 partitions:
+#   for i in $(seq 1 N); do printf "BNK%03d,%d\n" $i $(( (i-1) % 20 )); done

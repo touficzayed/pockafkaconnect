@@ -319,6 +319,27 @@ public class PGPEncryptionHandler {
     }
 
     /**
+     * Create a streaming PGP encryption wrapper around an existing OutputStream.
+     * Data written to the returned wrapper is encrypted on the fly without buffering
+     * the entire content in memory.
+     *
+     * @param target The underlying output stream to write encrypted data to
+     * @param publicKey PGP public key to encrypt with
+     * @param armor Whether to ASCII armor the output
+     * @return A PGPOutputStreamWrapper that encrypts data as it is written
+     * @throws PGPException if stream setup fails
+     */
+    public PGPOutputStreamWrapper createStreamingEncryptor(java.io.OutputStream target,
+                                                            PGPPublicKey publicKey,
+                                                            boolean armor) throws PGPException {
+        try {
+            return new PGPOutputStreamWrapper(target, publicKey, armor);
+        } catch (java.io.IOException e) {
+            throw new PGPException("Failed to create streaming PGP encryptor", e);
+        }
+    }
+
+    /**
      * Encrypt a string using a PGP public key.
      *
      * @param plaintext Plain text to encrypt

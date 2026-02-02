@@ -242,6 +242,124 @@ class PGPEncryptionHandlerTest {
         assertNotNull(loadedKey);
     }
 
+    // --- Streaming PGP tests ---
+
+    @Test
+    void testStreamingEncryptDecrypt() throws Exception {
+        byte[] originalData = "Hello, streaming PGP!".getBytes(StandardCharsets.UTF_8);
+
+        // Encrypt using streaming wrapper
+        ByteArrayOutputStream encryptedOut = new ByteArrayOutputStream();
+        try (PGPOutputStreamWrapper pgpOut = new PGPOutputStreamWrapper(encryptedOut, publicKey, false)) {
+            pgpOut.write(originalData);
+        }
+
+        byte[] encrypted = encryptedOut.toByteArray();
+        assertNotNull(encrypted);
+        assertTrue(encrypted.length > originalData.length);
+
+        // Decrypt using standard handler (streaming output is standard PGP format)
+        byte[] decrypted = handler.decrypt(encrypted, privateKey);
+        assertArrayEquals(originalData, decrypted, "Streaming encrypted data should decrypt correctly");
+    }
+
+    @Test
+    void testStreamingEncryptDecryptWithArmor() throws Exception {
+        byte[] originalData = "Streaming with armor!".getBytes(StandardCharsets.UTF_8);
+
+        ByteArrayOutputStream encryptedOut = new ByteArrayOutputStream();
+        try (PGPOutputStreamWrapper pgpOut = new PGPOutputStreamWrapper(encryptedOut, publicKey, true)) {
+            pgpOut.write(originalData);
+        }
+
+        byte[] encrypted = encryptedOut.toByteArray();
+        String encryptedStr = new String(encrypted, StandardCharsets.UTF_8);
+        assertTrue(encryptedStr.contains("-----BEGIN PGP MESSAGE-----"), "Should be ASCII armored");
+
+        byte[] decrypted = handler.decrypt(encrypted, privateKey);
+        assertArrayEquals(originalData, decrypted);
+    }
+
+    @Test
+    void testStreamingEncryptMultipleWrites() throws Exception {
+        // Simulate streaming records one by one (like JSONL lines)
+        String line1 = "{\"id\":1,\"amount\":100.00}\n";
+        String line2 = "{\"id\":2,\"amount\":200.00}\n";
+        String line3 = "{\"id\":3,\"amount\":300.00}\n";
+        String expected = line1 + line2 + line3;
+
+        ByteArrayOutputStream encryptedOut = new ByteArrayOutputStream();
+        try (PGPOutputStreamWrapper pgpOut = new PGPOutputStreamWrapper(encryptedOut, publicKey, false)) {
+            pgpOut.write(line1.getBytes(StandardCharsets.UTF_8));
+            pgpOut.write(line2.getBytes(StandardCharsets.UTF_8));
+            pgpOut.write(line3.getBytes(StandardCharsets.UTF_8));
+        }
+
+        byte[] decrypted = handler.decrypt(encryptedOut.toByteArray(), privateKey);
+        assertEquals(expected, new String(decrypted, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void testStreamingEncryptLargeData() throws Exception {
+        // 5 MB of data written in 8KB chunks — simulates realistic S3 sink behavior
+        int totalSize = 5 * 1024 * 1024;
+        byte[] chunk = new byte[8192];
+        for (int i = 0; i < chunk.length; i++) {
+            chunk[i] = (byte) (i % 256);
+        }
+
+        ByteArrayOutputStream encryptedOut = new ByteArrayOutputStream();
+        try (PGPOutputStreamWrapper pgpOut = new PGPOutputStreamWrapper(encryptedOut, publicKey, false)) {
+            int written = 0;
+            while (written < totalSize) {
+                int toWrite = Math.min(chunk.length, totalSize - written);
+                pgpOut.write(chunk, 0, toWrite);
+                written += toWrite;
+            }
+        }
+
+        byte[] decrypted = handler.decrypt(encryptedOut.toByteArray(), privateKey);
+        assertEquals(totalSize, decrypted.length);
+
+        // Verify first chunk content
+        for (int i = 0; i < chunk.length; i++) {
+            assertEquals((byte) (i % 256), decrypted[i]);
+        }
+    }
+
+    @Test
+    void testStreamingVsBatchProduceSameDecryptableOutput() throws Exception {
+        byte[] data = "Consistency check between streaming and batch".getBytes(StandardCharsets.UTF_8);
+
+        // Batch encrypt
+        byte[] batchEncrypted = handler.encrypt(data, publicKey, false);
+        byte[] batchDecrypted = handler.decrypt(batchEncrypted, privateKey);
+
+        // Streaming encrypt
+        ByteArrayOutputStream streamOut = new ByteArrayOutputStream();
+        try (PGPOutputStreamWrapper pgpOut = new PGPOutputStreamWrapper(streamOut, publicKey, false)) {
+            pgpOut.write(data);
+        }
+        byte[] streamDecrypted = handler.decrypt(streamOut.toByteArray(), privateKey);
+
+        // Both should produce the same plaintext
+        assertArrayEquals(batchDecrypted, streamDecrypted);
+        assertArrayEquals(data, streamDecrypted);
+    }
+
+    @Test
+    void testCreateStreamingEncryptorViaHandler() throws Exception {
+        byte[] data = "Via handler factory method".getBytes(StandardCharsets.UTF_8);
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (PGPOutputStreamWrapper pgpOut = handler.createStreamingEncryptor(out, publicKey, false)) {
+            pgpOut.write(data);
+        }
+
+        byte[] decrypted = handler.decrypt(out.toByteArray(), privateKey);
+        assertArrayEquals(data, decrypted);
+    }
+
     @Test
     void testDecryptWithWrongKey() throws Exception {
         // Encrypt with original public key
