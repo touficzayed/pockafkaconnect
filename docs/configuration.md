@@ -6,11 +6,12 @@ Ce document détaille tous les paramètres de configuration du Banking Kafka Con
 
 1. [Configuration du Connector](#configuration-du-connector)
 2. [Single Message Transforms (SMT)](#single-message-transforms-smt)
-3. [Partitionner](#partitionner)
-4. [Gestion des Clés](#gestion-des-clés)
-5. [PGP Encryption](#pgp-encryption)
-6. [Gestion des Erreurs](#gestion-des-erreurs)
-7. [Performance Tuning](#performance-tuning)
+3. [Configuration Multi-Banques](#configuration-multi-banques)
+4. [Partitionner](#partitionner)
+5. [Gestion des Clés](#gestion-des-clés)
+6. [PGP Encryption](#pgp-encryption)
+7. [Gestion des Erreurs](#gestion-des-erreurs)
+8. [Performance Tuning](#performance-tuning)
 
 ---
 
@@ -232,6 +233,308 @@ transforms.jsonlFormat.compact=true
 | Paramètre | Type | Défaut | Description |
 |-----------|------|--------|-------------|
 | `compact` | boolean | true | Supprimer les espaces inutiles |
+
+---
+
+## Configuration Multi-Banques
+
+Le système supporte la configuration spécifique par banque pour gérer différentes stratégies de transformation PAN et de chiffrement PGP.
+
+### Activation
+
+Pour utiliser la configuration multi-banques, configurez le PANTransformationSMT avec un fichier de configuration JSON:
+
+```properties
+transforms=extractHeaders,transformPANPerBank
+transforms.extractHeaders.type=com.banking.kafka.transforms.HeadersToPayloadTransform
+transforms.extractHeaders.mandatory.headers=X-Institution-Id,X-Event-Type
+
+transforms.transformPANPerBank.type=com.banking.kafka.transforms.PANTransformationSMT
+transforms.transformPANPerBank.bank.config.path=/config/banks/bank-config.json
+transforms.transformPANPerBank.institution.id.header=X-Institution-Id
+```
+
+### Structure du Fichier de Configuration
+
+Fichier JSON définissant les configurations spécifiques par banque (`/config/banks/bank-config.json`):
+
+```json
+{
+  "banks": {
+    "BNK001": {
+      "name": "Banque Nationale",
+      "pan_strategy": "REMOVE",
+      "pan_config": {
+        "source_field": "encryptedPrimaryAccountNumber",
+        "reason": "Conformité stricte PCI-DSS"
+      },
+      "pgp_encryption": {
+        "enabled": true,
+        "public_key_path": "/keys/pgp/bnk001-public.asc",
+        "armor": true,
+        "reason": "Chiffrement PGP obligatoire"
+      },
+      "s3_config": {
+        "bucket": "banking-payments",
+        "path_prefix": "bnk001"
+      }
+    },
+    "BNK002": {
+      "name": "Crédit Populaire",
+      "pan_strategy": "DECRYPT",
+      "pan_config": {
+        "source_field": "encryptedPrimaryAccountNumber",
+        "target_field": "primaryAccountNumber",
+        "private_key_path": "/keys/bank-private-key.pem",
+        "reason": "Système legacy nécessitant PAN en clair"
+      },
+      "pgp_encryption": {
+        "enabled": false,
+        "reason": "Chiffrement S3 suffisant"
+      }
+    }
+  },
+  "default": {
+    "name": "Configuration par défaut",
+    "pan_strategy": "REMOVE",
+    "pgp_encryption": {
+      "enabled": false
+    }
+  }
+}
+```
+
+### Paramètres de Configuration par Banque
+
+#### Configuration PAN
+
+| Paramètre | Type | Description |
+|-----------|------|-------------|
+| `name` | string | Nom de la banque (informatif) |
+| `pan_strategy` | string | Stratégie: `REMOVE`, `DECRYPT`, `REKEY`, `NONE` |
+| `pan_config.source_field` | string | Champ source contenant le PAN chiffré |
+| `pan_config.target_field` | string | Champ cible (pour DECRYPT/REKEY) |
+| `pan_config.private_key_path` | string | Chemin vers la clé privée (pour DECRYPT/REKEY) |
+| `pan_config.tokenize` | boolean | Tokeniser le PAN après déchiffrement |
+| `pan_config.reason` | string | Raison de la stratégie (audit/documentation) |
+
+#### Configuration PGP
+
+| Paramètre | Type | Défaut | Description |
+|-----------|------|--------|-------------|
+| `pgp_encryption.enabled` | boolean | false | Activer le chiffrement PGP |
+| `pgp_encryption.public_key_path` | string | - | Chemin vers la clé publique PGP |
+| `pgp_encryption.armor` | boolean | true | ASCII armor (true) ou binaire (false) |
+| `pgp_encryption.reason` | string | - | Raison du chiffrement (audit) |
+
+#### Configuration S3
+
+| Paramètre | Type | Description |
+|-----------|------|-------------|
+| `s3_config.bucket` | string | Nom du bucket S3 |
+| `s3_config.path_prefix` | string | Préfixe du chemin (ex: `bnk001`) |
+
+### Scénarios par Banque
+
+#### Scénario 1: BNK001 - Suppression PAN + PGP ASCII
+
+**Use Case:** Conformité stricte PCI-DSS, aucun PAN stocké
+
+```json
+{
+  "BNK001": {
+    "pan_strategy": "REMOVE",
+    "pgp_encryption": {
+      "enabled": true,
+      "armor": true
+    }
+  }
+}
+```
+
+**Résultat:** PAN supprimé, fichier chiffré PGP format texte
+
+---
+
+#### Scénario 2: BNK002 - Déchiffrement PAN + Sans PGP
+
+**Use Case:** Système legacy nécessitant PAN en clair
+
+```json
+{
+  "BNK002": {
+    "pan_strategy": "DECRYPT",
+    "pan_config": {
+      "target_field": "primaryAccountNumber",
+      "private_key_path": "/keys/bank-private-key.pem"
+    },
+    "pgp_encryption": {
+      "enabled": false
+    }
+  }
+}
+```
+
+**Résultat:** PAN déchiffré exposé, fichier non chiffré PGP
+
+---
+
+#### Scénario 3: BNK003 - Re-chiffrement + PGP Binaire
+
+**Use Case:** Isolation des données avec clé propre
+
+```json
+{
+  "BNK003": {
+    "pan_strategy": "REKEY",
+    "pan_config": {
+      "private_key_path": "/keys/bank-private-key.pem",
+      "partner_keys_mapping": {
+        "BNK003": "/keys/partners/bnk003-public.pem"
+      }
+    },
+    "pgp_encryption": {
+      "enabled": true,
+      "armor": false
+    }
+  }
+}
+```
+
+**Résultat:** PAN re-chiffré avec clé BNK003, fichier PGP binaire compact
+
+---
+
+#### Scénario 4: BNK004 - Pas de PAN + PGP
+
+**Use Case:** Banque utilisant uniquement des tokens
+
+```json
+{
+  "BNK004": {
+    "pan_strategy": "NONE",
+    "pgp_encryption": {
+      "enabled": true,
+      "armor": true
+    }
+  }
+}
+```
+
+**Résultat:** Aucune transformation PAN, fichier chiffré PGP
+
+---
+
+#### Scénario 5: BNK005 - Déchiffrement + Tokenisation + Double Chiffrement
+
+**Use Case:** Sécurité maximale PCI-DSS Level 1
+
+```json
+{
+  "BNK005": {
+    "pan_strategy": "DECRYPT",
+    "pan_config": {
+      "target_field": "tokenizedPAN",
+      "tokenize": true,
+      "private_key_path": "/keys/bank-private-key.pem"
+    },
+    "pgp_encryption": {
+      "enabled": true,
+      "armor": true
+    }
+  }
+}
+```
+
+**Résultat:** PAN déchiffré puis tokenisé, double chiffrement (PGP + S3)
+
+---
+
+### Tableau Récapitulatif
+
+| Banque | Stratégie PAN | PGP | Format PGP | Use Case |
+|--------|---------------|-----|------------|----------|
+| BNK001 | REMOVE | ✅ | ASCII | Conformité stricte |
+| BNK002 | DECRYPT | ❌ | - | Système legacy |
+| BNK003 | REKEY | ✅ | Binaire | Isolation des données |
+| BNK004 | NONE | ✅ | ASCII | Tokens uniquement |
+| BNK005 | DECRYPT+Token | ✅ | ASCII | Sécurité maximale |
+
+### Configuration du Connector Multi-Banques
+
+#### Option 1: Un Connecteur pour Toutes les Banques
+
+```properties
+name=banking-s3-sink-multibank
+connector.class=io.confluent.connect.s3.S3SinkConnector
+topics=payments-in
+
+transforms=extractHeaders,transformPANPerBank,addBankPrefix
+
+transforms.extractHeaders.type=com.banking.kafka.transforms.HeadersToPayloadTransform
+transforms.extractHeaders.mandatory.headers=X-Institution-Id,X-Event-Type
+transforms.extractHeaders.target.field=metadata
+
+transforms.transformPANPerBank.type=com.banking.kafka.transforms.PANTransformationSMT
+transforms.transformPANPerBank.bank.config.path=/config/banks/bank-config.json
+transforms.transformPANPerBank.institution.id.header=X-Institution-Id
+
+s3.bucket.name=banking-payments
+partitioner.class=com.banking.kafka.partitioner.BankingHierarchicalPartitioner
+```
+
+#### Option 2: Un Connecteur par Banque
+
+Pour BNK001 (REMOVE strategy):
+
+```properties
+name=banking-s3-sink-bnk001
+connector.class=io.confluent.connect.s3.S3SinkConnector
+topics=payments-in
+
+transforms=extractHeaders,transformPAN
+
+transforms.transformPAN.type=com.banking.kafka.transforms.PANTransformationSMT
+transforms.transformPAN.strategy=REMOVE
+transforms.transformPAN.source.field=encryptedPrimaryAccountNumber
+
+s3.bucket.name=banking-payments
+s3.object.key.template=bnk001/year={{yyyy}}/month={{MM}}/day={{dd}}/{{topic}}-{{partition}}-{{start_offset}}.json
+```
+
+### Tests Multi-Banques
+
+Producer de test pour toutes les banques:
+
+```bash
+# Compiler et envoyer des messages pour toutes les banques
+mvn clean package
+java -jar target/kafka-connect-banking-poc-1.0-SNAPSHOT-jar-with-dependencies.jar \
+  com.banking.kafka.integration.MultiBankPaymentProducer \
+  localhost:9092 payments-in 10
+
+# Ou pour une banque spécifique
+java -jar target/kafka-connect-banking-poc-1.0-SNAPSHOT-jar-with-dependencies.jar \
+  com.banking.kafka.integration.MultiBankPaymentProducer \
+  localhost:9092 payments-in 50 BNK002
+```
+
+### Vérification des Résultats
+
+```bash
+# Lister les fichiers par banque
+docker exec banking-minio-init mc find minio/banking-payments/bnk001 --name "*.json"
+docker exec banking-minio-init mc find minio/banking-payments/bnk002 --name "*.json"
+
+# Voir le contenu (BNK002 sans PGP)
+docker exec banking-minio-init mc cat minio/banking-payments/bnk002/.../file.json | jq .
+
+# Déchiffrer un fichier PGP (BNK001)
+docker exec banking-minio-init mc cp \
+  minio/banking-payments/bnk001/.../file.json \
+  /tmp/encrypted.json
+gpg --decrypt /tmp/encrypted.json | jq .
+```
 
 ---
 

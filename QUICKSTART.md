@@ -6,9 +6,10 @@ Guide de démarrage rapide pour le POC Banking Kafka Connect.
 
 Assurez-vous d'avoir installé:
 - ✅ Docker & Docker Compose
-- ✅ Java 11+ (pour le développement)
+- ✅ Java 11+ (pour le développement et l'exécution)
 - ✅ Maven 3.6+ (pour le build)
 - ✅ Git
+- ✅ GPG (pour générer les clés PGP multi-banques)
 
 Vérification:
 ```bash
@@ -16,6 +17,7 @@ docker --version
 docker-compose --version
 java -version
 mvn -version
+gpg --version
 ```
 
 ## Démarrage en 5 Minutes
@@ -98,6 +100,7 @@ Vous devriez voir `payments-in` dans la liste.
 kafka-connect-banking-poc/
 ├── README.md                  ← Vue d'ensemble du projet
 ├── QUICKSTART.md              ← Ce fichier
+├── MULTI_BANK_SETUP.md        ← Guide configuration multi-banques
 ├── pom.xml                    ← Configuration Maven
 │
 ├── docs/                      ← Documentation technique
@@ -105,17 +108,39 @@ kafka-connect-banking-poc/
 │   ├── configuration.md       ← Tous les paramètres expliqués
 │   └── next-steps.md          ← Plan d'implémentation détaillé
 │
-├── src/main/java/             ← Code source (à implémenter)
+├── src/main/java/             ← Code source (✅ IMPLÉMENTÉ)
 │   └── com/banking/kafka/
 │       ├── transforms/        ← Single Message Transforms
+│       │   ├── HeadersToPayloadTransform.java
+│       │   ├── PANTransformationSMT.java
+│       │   └── JSONLFormatTransform.java
 │       ├── partitioner/       ← Custom partitioner
+│       │   └── BankingHierarchicalPartitioner.java
+│       ├── config/            ← Configuration multi-banques
+│       │   └── BankConfigManager.java
 │       └── crypto/            ← JWE/PGP handlers
+│           ├── JWEHandler.java
+│           ├── PGPEncryptionHandler.java
+│           ├── BankPGPEncryptor.java
+│           └── KeyStorageProvider.java
+│
+├── src/test/java/             ← Tests (31 tests passants ✅)
+│   └── com/banking/kafka/
+│       ├── transforms/        ← Tests SMT
+│       ├── partitioner/       ← Tests partitioner
+│       ├── crypto/            ← Tests crypto
+│       └── integration/       ← Producers de test
+│           └── MultiBankPaymentProducer.java
 │
 ├── config/                    ← Configurations
+│   ├── banks/                 ← Configuration multi-banques
+│   │   └── bank-config.json   ← Config JSON (BNK001-BNK005)
 │   ├── local/                 ← Environnement local
 │   │   ├── connector.properties
 │   │   ├── partner-keys-mapping.json
-│   │   └── keys/              ← Clés de chiffrement (gitignored)
+│   │   └── keys/              ← Clés de chiffrement
+│   │       ├── pgp/           ← Clés PGP par banque
+│   │       └── ...
 │   └── cloud/                 ← Environnement IBM Cloud
 │       └── connector-ibm.properties
 │
@@ -127,28 +152,94 @@ kafka-connect-banking-poc/
     └── start-local-env.sh
 ```
 
+## Tests Multi-Banques (Phases 1-6 Complétées ✅)
+
+Le POC est entièrement fonctionnel avec **31 tests passants**. Vous pouvez maintenant tester les différents scénarios bancaires.
+
+### Compiler et Packager
+
+```bash
+mvn clean package
+```
+
+Le JAR sera généré dans `target/kafka-connect-banking-poc-1.0-SNAPSHOT-jar-with-dependencies.jar`
+
+### Tester Toutes les Banques
+
+Envoyer 10 messages pour chaque banque (BNK001-BNK005):
+
+```bash
+java -jar target/kafka-connect-banking-poc-*-jar-with-dependencies.jar \
+  com.banking.kafka.integration.MultiBankPaymentProducer \
+  localhost:9092 payments-in 10
+```
+
+### Tester Une Banque Spécifique
+
+Envoyer 50 messages pour BNK002:
+
+```bash
+java -jar target/kafka-connect-banking-poc-*-jar-with-dependencies.jar \
+  com.banking.kafka.integration.MultiBankPaymentProducer \
+  localhost:9092 payments-in 50 BNK002
+```
+
+### Scénarios Bancaires
+
+| Banque | Stratégie PAN | PGP | Format | Use Case |
+|--------|---------------|-----|--------|----------|
+| BNK001 | REMOVE | ✅ | ASCII | Conformité stricte PCI-DSS |
+| BNK002 | DECRYPT | ❌ | - | Système legacy nécessitant PAN clair |
+| BNK003 | REKEY | ✅ | Binaire | Isolation avec clé propre |
+| BNK004 | NONE | ✅ | ASCII | Banque utilisant tokens uniquement |
+| BNK005 | DECRYPT+Token | ✅ | ASCII | Sécurité maximale |
+
+### Vérifier les Résultats
+
+**Voir les fichiers par banque dans MinIO:**
+
+```bash
+# BNK001 - Fichiers chiffrés PGP (ASCII armor)
+docker exec banking-minio-init mc cat minio/banking-payments/bnk001/.../*.json
+
+# BNK002 - Fichiers non chiffrés avec PAN en clair
+docker exec banking-minio-init mc cat minio/banking-payments/bnk002/.../*.json
+
+# Compter les fichiers par banque
+for bank in bnk001 bnk002 bnk003 bnk004 bnk005; do
+  count=$(docker exec banking-minio-init mc find minio/banking-payments/$bank --name "*.json*" | wc -l)
+  echo "$bank: $count fichiers"
+done
+```
+
 ## Prochaines Étapes
 
-### Option A: Comprendre l'Architecture
+### Option A: Comprendre l'Architecture Multi-Banques
 
 Lisez la documentation dans cet ordre:
 
 1. [README.md](README.md) - Vue d'ensemble
-2. [docs/architecture.md](docs/architecture.md) - Design détaillé
-3. [docs/configuration.md](docs/configuration.md) - Paramètres
-4. [docs/next-steps.md](docs/next-steps.md) - Plan d'implémentation
+2. [MULTI_BANK_SETUP.md](MULTI_BANK_SETUP.md) - Configuration multi-banques
+3. [docs/architecture.md](docs/architecture.md) - Design détaillé
+4. [docs/configuration.md](docs/configuration.md) - Paramètres
+5. [docs/next-steps.md](docs/next-steps.md) - Plan E2E et Cloud
 
-### Option B: Commencer l'Implémentation
+### Option B: Tests E2E avec Kafka Connect
 
-Suivez le plan d'implémentation dans [docs/next-steps.md](docs/next-steps.md):
+Déployer le connector et tester le flow complet:
 
-**Phase 2: Implémenter HeadersToPayloadTransform**
+```bash
+# Copier le JAR vers les connectors
+cp target/kafka-connect-banking-poc-*.jar docker/connectors/
 
-Cette transformation extrait les headers Kafka et les ajoute au payload JSON.
+# Redémarrer Kafka Connect
+docker-compose -f docker/docker-compose.yml restart kafka-connect
 
-Fichier à créer: `src/main/java/com/banking/kafka/transforms/HeadersToPayloadTransform.java`
-
-Je peux vous guider dans l'implémentation Java!
+# Déployer le connector multi-banques
+curl -X POST http://localhost:8083/connectors \
+  -H "Content-Type: application/json" \
+  -d @config/local/connector-multibank.json
+```
 
 ### Option C: Explorer l'Environnement
 
@@ -285,10 +376,23 @@ Pour toute question sur:
 
 ## Vous êtes prêt! 🚀
 
-L'infrastructure est en place. Vous pouvez maintenant:
+Le POC est **entièrement implémenté et testé**. Vous pouvez maintenant:
 
-1. **Explorer** l'architecture et la documentation
-2. **Implémenter** les composants Java (voir [docs/next-steps.md](docs/next-steps.md))
-3. **Tester** le flow complet avec l'environnement local
+1. **Explorer** l'architecture multi-banques dans la documentation
+2. **Tester** les 5 scénarios bancaires avec le producer de test
+3. **Déployer** le connector en local avec Kafka Connect
+4. **Valider** les fichiers générés dans MinIO/S3
+5. **Préparer** le déploiement cloud (IBM Event Streams + COS)
 
-**Besoin d'aide pour implémenter?** Dites-moi par quelle phase commencer!
+**État du projet:**
+- ✅ 31 tests unitaires passants
+- ✅ 5 scénarios bancaires implémentés (BNK001-BNK005)
+- ✅ Configuration multi-banques centralisée
+- ✅ Chiffrement PGP optionnel par banque
+- ✅ Producer de test multi-banques
+- ⏳ Tests E2E avec Kafka Connect (prêt à déployer)
+- ⏳ Déploiement cloud IBM (à venir)
+
+**Pour aller plus loin:**
+- Voir [MULTI_BANK_SETUP.md](MULTI_BANK_SETUP.md) pour les détails de configuration
+- Voir [docs/next-steps.md](docs/next-steps.md) pour les tests E2E et cloud deployment

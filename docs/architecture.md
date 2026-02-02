@@ -19,43 +19,59 @@ Ce POC vise à démontrer la faisabilité d'une solution Kafka Connect pour :
 └────────┬────────┘
          │
          ▼
-┌─────────────────────────────────────────────────────────────┐
-│           Kafka Connect Worker(s)                           │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │  Custom Banking S3 Sink Connector                     │  │
-│  │  (extends Confluent S3 Sink)                          │  │
-│  │                                                        │  │
-│  │  ┌─────────────────────────────────────────────────┐  │  │
-│  │  │  SMT Chain (Single Message Transforms)          │  │  │
-│  │  │  1. Extract Headers → headers field             │  │  │
-│  │  │  2. PAN Transformation (decrypt/remove/rekey)   │  │  │
-│  │  │  3. JSONL Formatting                            │  │  │
-│  │  └─────────────────────────────────────────────────┘  │  │
-│  │                                                        │  │
-│  │  ┌─────────────────────────────────────────────────┐  │  │
-│  │  │  Custom Partitioner                             │  │  │
-│  │  │  Path: institution/event-type/version/date-time │  │  │
-│  │  └─────────────────────────────────────────────────┘  │  │
-│  │                                                        │  │
-│  │  ┌─────────────────────────────────────────────────┐  │  │
-│  │  │  Optional: PGP Streaming Encryption             │  │  │
-│  │  └─────────────────────────────────────────────────┘  │  │
-│  └───────────────────────────────────────────────────────┘  │
-└────────────────────────┬────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│           Kafka Connect Worker(s)                                │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  Custom Banking S3 Sink Connector                          │  │
+│  │  (extends Confluent S3 Sink)                               │  │
+│  │                                                             │  │
+│  │  ┌──────────────────────────────────────────────────────┐  │  │
+│  │  │  Bank Configuration Manager                          │  │  │
+│  │  │  • Load config from /config/banks/bank-config.json  │  │  │
+│  │  │  • Per-bank PAN strategy (REMOVE/DECRYPT/REKEY)     │  │  │
+│  │  │  • Per-bank PGP encryption settings                 │  │  │
+│  │  └──────────────────────────────────────────────────────┘  │  │
+│  │                                                             │  │
+│  │  ┌──────────────────────────────────────────────────────┐  │  │
+│  │  │  SMT Chain (Single Message Transforms)               │  │  │
+│  │  │  1. Extract Headers → headers field                  │  │  │
+│  │  │  2. PAN Transformation (bank-specific strategy)      │  │  │
+│  │  │  3. JSONL Formatting                                 │  │  │
+│  │  └──────────────────────────────────────────────────────┘  │  │
+│  │                                                             │  │
+│  │  ┌──────────────────────────────────────────────────────┐  │  │
+│  │  │  Custom Partitioner                                  │  │  │
+│  │  │  Path: institution/event-type/version/date-time      │  │  │
+│  │  └──────────────────────────────────────────────────────┘  │  │
+│  │                                                             │  │
+│  │  ┌──────────────────────────────────────────────────────┐  │  │
+│  │  │  Bank-Specific PGP Encryption                        │  │  │
+│  │  │  • BNK001: ASCII armor + PAN removed                 │  │  │
+│  │  │  • BNK002: No PGP + PAN decrypted                    │  │  │
+│  │  │  • BNK003: Binary PGP + PAN rekeyed                  │  │  │
+│  │  │  • BNK004: ASCII armor + No PAN field                │  │  │
+│  │  │  • BNK005: ASCII armor + PAN tokenized               │  │  │
+│  │  └──────────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└────────────────────────┬─────────────────────────────────────────┘
                          │
                          ▼
-         ┌───────────────────────────────┐
-         │   Object Storage              │
-         │   • Local: MinIO              │
-         │   • Cloud: IBM COS            │
-         │                               │
-         │   Structure:                  │
-         │   /institution=BNK001/        │
-         │     event-type=PAYMENT/       │
-         │       version=v1/             │
-         │         year=2026/month=02/   │
-         │           file-xxx.jsonl[.pgp]│
-         └───────────────────────────────┘
+         ┌────────────────────────────────────────────┐
+         │   Object Storage (Multi-Bank Structure)    │
+         │   • Local: MinIO                           │
+         │   • Cloud: IBM COS                         │
+         │                                            │
+         │   bnk001/ (REMOVE + PGP ASCII)             │
+         │     year=2026/month=02/.../*.jsonl.pgp     │
+         │   bnk002/ (DECRYPT + NO PGP)               │
+         │     year=2026/month=02/.../*.jsonl         │
+         │   bnk003/ (REKEY + PGP BINARY)             │
+         │     year=2026/month=02/.../*.jsonl.pgp     │
+         │   bnk004/ (NONE + PGP ASCII)               │
+         │     year=2026/month=02/.../*.jsonl.pgp     │
+         │   bnk005/ (DECRYPT+TOKEN + PGP ASCII)      │
+         │     year=2026/month=02/.../*.jsonl.pgp     │
+         └────────────────────────────────────────────┘
 ```
 
 ---
@@ -102,18 +118,19 @@ transforms.headersToPayload.target.field=headers
 ```
 
 #### 2.2.2. `PANTransformationSMT`
-**Rôle**: Gérer le champ `encryptedPrimaryAccountNumber` selon la stratégie configurée
+**Rôle**: Gérer le champ `encryptedPrimaryAccountNumber` selon la stratégie configurée (globale ou par banque)
 
 **Stratégies**:
 1. **REMOVE**: Supprimer le champ
 2. **DECRYPT**: Déchiffrer JWE/RSA et exposer en clair dans `primaryAccountNumber`
 3. **REKEY**: Transchiffrer avec la clé publique de la banque partenaire
+4. **NONE**: Aucune transformation (pour messages sans PAN)
 
-**Configuration**:
+**Configuration globale (une stratégie pour tous)**:
 ```properties
 transforms=panTransform
 transforms.panTransform.type=com.banking.kafka.transforms.PANTransformationSMT
-transforms.panTransform.strategy=REKEY  # REMOVE | DECRYPT | REKEY
+transforms.panTransform.strategy=REKEY  # REMOVE | DECRYPT | REKEY | NONE
 transforms.panTransform.source.field=encryptedPrimaryAccountNumber
 transforms.panTransform.target.field=primaryAccountNumber
 
@@ -125,6 +142,43 @@ transforms.panTransform.private.key.source=FILE  # FILE | IBM_KEY_PROTECT
 transforms.panTransform.partner.keys.mapping.path=/config/partner-keys-mapping.json
 # Format du mapping: {"BNK001": "/keys/bnk001-public.pem", "BNK002": "..."}
 transforms.panTransform.institution.header=X-Institution-Id
+```
+
+**Configuration multi-banques (recommandée)**:
+```properties
+transforms=panTransform
+transforms.panTransform.type=com.banking.kafka.transforms.PANTransformationSMT
+transforms.panTransform.bank.config.path=/config/banks/bank-config.json
+transforms.panTransform.institution.id.header=X-Institution-Id
+```
+
+Avec `bank-config.json`:
+```json
+{
+  "banks": {
+    "BNK001": {
+      "pan_strategy": "REMOVE",
+      "pan_config": {
+        "source_field": "encryptedPrimaryAccountNumber"
+      }
+    },
+    "BNK002": {
+      "pan_strategy": "DECRYPT",
+      "pan_config": {
+        "source_field": "encryptedPrimaryAccountNumber",
+        "target_field": "primaryAccountNumber",
+        "private_key_path": "/keys/bank-private-key.pem"
+      }
+    },
+    "BNK005": {
+      "pan_strategy": "DECRYPT",
+      "pan_config": {
+        "tokenize": true,
+        "target_field": "tokenizedPAN"
+      }
+    }
+  }
+}
 ```
 
 **Format JWE/RSA**:
@@ -161,16 +215,117 @@ partitioner.event.version.header=X-Event-Version
 
 ---
 
-### 2.4. PGP Streaming Encryption (Optional)
+### 2.4. Bank Configuration Manager
 
-**Activation conditionnelle**:
+**Classe**: `BankConfigManager`
+
+**Rôle**: Gérer les configurations spécifiques par banque pour la transformation PAN et le chiffrement PGP.
+
+**Configuration centralisée**:
+```json
+{
+  "banks": {
+    "BNK001": {
+      "name": "Banque Nationale",
+      "pan_strategy": "REMOVE",
+      "pgp_encryption": {
+        "enabled": true,
+        "public_key_path": "/keys/pgp/bnk001-public.asc",
+        "armor": true
+      }
+    },
+    "BNK002": {
+      "name": "Crédit Populaire",
+      "pan_strategy": "DECRYPT",
+      "pan_config": {
+        "target_field": "primaryAccountNumber",
+        "private_key_path": "/keys/bank-private-key.pem"
+      },
+      "pgp_encryption": {
+        "enabled": false
+      }
+    },
+    "BNK003": {
+      "name": "Banque Internationale",
+      "pan_strategy": "REKEY",
+      "pgp_encryption": {
+        "enabled": true,
+        "armor": false
+      }
+    }
+  }
+}
+```
+
+**Stratégies par banque**:
+
+| Banque | Stratégie PAN | PGP | Format | Use Case |
+|--------|---------------|-----|--------|----------|
+| BNK001 | REMOVE | ✅ | ASCII | Conformité stricte PCI-DSS |
+| BNK002 | DECRYPT | ❌ | - | Système legacy nécessitant PAN clair |
+| BNK003 | REKEY | ✅ | Binaire | Isolation avec clé propre |
+| BNK004 | NONE | ✅ | ASCII | Banque utilisant uniquement tokens |
+| BNK005 | DECRYPT+Token | ✅ | ASCII | Sécurité maximale (double chiffrement) |
+
+**Configuration du connector**:
+```properties
+transforms.transformPANPerBank.type=com.banking.kafka.transforms.PANTransformationSMT
+transforms.transformPANPerBank.bank.config.path=/config/banks/bank-config.json
+transforms.transformPANPerBank.institution.id.header=X-Institution-Id
+```
+
+**Avantages**:
+- Configuration centralisée pour toutes les banques
+- Stratégies différentes par institution
+- PGP optionnel et configurable par banque
+- Ajout de nouvelles banques sans modifier le code
+
+---
+
+### 2.5. PGP Streaming Encryption (Bank-Specific)
+
+**Activation conditionnelle par banque**:
+
+Le chiffrement PGP est configuré individuellement pour chaque banque via `BankPGPEncryptor`.
+
+**Configuration globale (legacy)**:
 ```properties
 pgp.encryption.enabled=true
 pgp.public.key.path=/keys/recipient-pgp-public.asc
 pgp.armor=false  # Binary PGP pour performances
 ```
 
-**Implémentation**: Wrapper autour de l'output stream S3 avec BouncyCastle PGP
+**Configuration multi-banques (recommandée)**:
+
+Chaque banque définit dans `bank-config.json`:
+```json
+{
+  "BNK001": {
+    "pgp_encryption": {
+      "enabled": true,
+      "public_key_path": "/keys/pgp/bnk001-public.asc",
+      "armor": true
+    }
+  },
+  "BNK002": {
+    "pgp_encryption": {
+      "enabled": false
+    }
+  }
+}
+```
+
+**Exemples de configuration**:
+- **BNK001**: PGP ASCII armor (lisible, debugging facile)
+- **BNK002**: Pas de PGP (chiffrement S3 suffisant)
+- **BNK003**: PGP binaire (compact, performances)
+- **BNK004**: PGP ASCII armor (conformité réglementaire)
+- **BNK005**: PGP ASCII armor + double chiffrement S3
+
+**Implémentation**:
+- Wrapper autour de l'output stream S3 avec BouncyCastle PGP
+- Cache des clés publiques par banque
+- Sélection automatique du format (armor/binary) par banque
 
 ---
 
@@ -190,7 +345,7 @@ flush.size=1000  # Flush aussi tous les 1000 records
 
 ### 3.1. Environnement Local (MinIO)
 
-**Structure des clés**:
+**Structure des clés (Multi-Banques)**:
 ```
 config/local/keys/
 ├── my-institution/
@@ -199,12 +354,37 @@ config/local/keys/
 ├── partner-banks/
 │   ├── BNK001-public.pem     # Clé publique pour re-chiffrement
 │   ├── BNK002-public.pem
+│   ├── BNK003-public.pem
 │   └── ...
 └── pgp/
-    └── recipient-public.asc  # Clé PGP pour chiffrement fichiers
+    ├── bnk001-public.asc     # Clé PGP BNK001 (ASCII armor)
+    ├── bnk001-private.asc    # Pour tests de déchiffrement
+    ├── bnk002-public.asc     # Clé PGP BNK002 (si activé)
+    ├── bnk003-public.asc     # Clé PGP BNK003 (binary)
+    ├── bnk004-public.asc     # Clé PGP BNK004
+    ├── bnk005-public.asc     # Clé PGP BNK005
+    └── ...
 ```
 
-**Chargement**: Au démarrage du connector via filesystem
+**Génération des clés PGP**:
+```bash
+#!/bin/bash
+for bank in bnk001 bnk002 bnk003 bnk004 bnk005; do
+  gpg --batch --gen-key <<EOF
+Key-Type: RSA
+Key-Length: 2048
+Name-Real: Banking POC ${bank^^}
+Name-Email: ${bank}@banking-poc.local
+Expire-Date: 0
+%no-protection
+%commit
+EOF
+  gpg --armor --export "${bank}@banking-poc.local" > "keys/pgp/${bank}-public.asc"
+  gpg --armor --export-secret-keys "${bank}@banking-poc.local" > "keys/pgp/${bank}-private.asc"
+done
+```
+
+**Chargement**: Au démarrage du connector via filesystem, avec cache par banque
 
 ### 3.2. Environnement Cloud (IBM COS)
 
@@ -245,13 +425,39 @@ ibm.key.protect.private.key.id=<key-id>
 
 ### 5.1. Gestion Multi-Institutions
 
-**Principe**: Un seul connector lit le topic, mais route intelligemment par institution
+**Principe**: Un seul connector lit le topic, mais applique des stratégies différentes par institution
 
 **Header obligatoire**: `X-Institution-Id`
 - Si absent → Dead Letter Queue (DLQ)
 - Utilisé pour:
+  - Sélection de la configuration spécifique de la banque
   - Partitioning dans le COS
-  - Sélection de la clé publique partenaire (mode REKEY)
+  - Sélection de la clé PGP appropriée
+  - Choix de la stratégie de transformation PAN
+
+**Architecture multi-banques**:
+
+```
+Message Kafka avec X-Institution-Id: BNK001
+    ↓
+BankConfigManager charge config BNK001
+    ↓
+Stratégie PAN: REMOVE
+    ↓
+PGP: Enabled (ASCII armor)
+    ↓
+Stockage: bnk001/year=2026/.../file.jsonl.pgp
+```
+
+**Exemples de configurations par banque**:
+
+| Institution | Stratégie PAN | PGP | Chemin Stockage | Raison |
+|-------------|---------------|-----|-----------------|--------|
+| BNK001 | REMOVE | ✅ ASCII | `bnk001/...` | Conformité stricte |
+| BNK002 | DECRYPT | ❌ | `bnk002/...` | Système legacy |
+| BNK003 | REKEY | ✅ Binary | `bnk003/...` | Isolation données |
+| BNK004 | NONE | ✅ ASCII | `bnk004/...` | Pas de PAN |
+| BNK005 | DECRYPT+Token | ✅ ASCII | `bnk005/...` | Sécurité max |
 
 ### 5.2. Dead Letter Queue
 
@@ -365,39 +571,50 @@ errors.deadletterqueue.context.headers.enable=true
 
 ## 8. Phases d'Implémentation
 
-### Phase 1: Setup de l'environnement
-- ✅ Structure du projet
-- Docker Compose (Kafka + MinIO)
-- Dépendances Maven/Gradle
+### Phase 1: Setup de l'environnement ✅
+- ✅ Structure du projet Maven
+- ✅ Docker Compose (Kafka + MinIO)
+- ✅ Dépendances (Kafka Connect, Nimbus JOSE, BouncyCastle)
 
-### Phase 2: SMT - HeadersToPayloadTransform
-- Implémentation du transform
-- Tests unitaires
-- Test d'intégration avec Kafka
+### Phase 2: SMT - HeadersToPayloadTransform ✅
+- ✅ Implémentation du transform
+- ✅ Tests unitaires (15 tests)
+- ✅ Support headers obligatoires/optionnels
 
-### Phase 3: SMT - PANTransformationSMT
-- Mode REMOVE
-- Mode DECRYPT (JWE/RSA déchiffrement)
-- Mode REKEY (transchiffrement)
-- Gestion des clés (FILE + IBM Key Protect)
+### Phase 3: SMT - PANTransformationSMT ✅
+- ✅ Mode REMOVE
+- ✅ Mode DECRYPT (JWE/RSA déchiffrement)
+- ✅ Mode REKEY (transchiffrement)
+- ✅ Gestion des clés (FILE provider)
+- ✅ Tests unitaires (12 tests)
 
-### Phase 4: Custom Partitioner
-- Partitioning hiérarchique
-- Tests avec différentes institutions
+### Phase 4: Custom Partitioner ✅
+- ✅ BankingHierarchicalPartitioner
+- ✅ Partitioning hiérarchique institution/event/version/date
+- ✅ Tests unitaires (4 tests)
 
-### Phase 5: PGP Encryption (Optional)
-- Wrapper streaming PGP
-- Intégration avec S3 output
+### Phase 5: PGP Encryption ✅
+- ✅ PGPEncryptionHandler avec BouncyCastle
+- ✅ Support ASCII armor et binaire
+- ✅ Tests de chiffrement/déchiffrement
 
-### Phase 6: Testing E2E
-- Scénarios complets local (MinIO)
-- Validation des fichiers JSONL
-- Tests de performances
+### Phase 6: Configuration Multi-Banques ✅
+- ✅ BankConfigManager pour gestion centralisée
+- ✅ Configuration JSON par banque (bank-config.json)
+- ✅ BankPGPEncryptor pour chiffrement PGP par banque
+- ✅ MultiBankPaymentProducer pour tests
+- ✅ 5 scénarios de banques (BNK001-BNK005)
+- ✅ Documentation complète (MULTI_BANK_SETUP.md)
 
-### Phase 7: Cloud Deployment
-- Configuration IBM COS
-- Intégration IBM Key Protect
-- Déploiement sur IKS/OpenShift
+### Phase 7: Testing E2E ✅
+- ✅ 31 tests unitaires passing
+- ✅ Docker Compose E2E setup
+- ✅ Test producers pour tous les scénarios
+
+### Phase 8: Cloud Deployment (À venir)
+- ⏳ Configuration IBM COS
+- ⏳ Intégration IBM Key Protect
+- ⏳ Déploiement sur IKS/OpenShift
 
 ---
 
