@@ -1,0 +1,117 @@
+{
+  "banks": {
+    "BNK001": {
+      "name": "Banque Nationale",
+      "pan_strategy": "REMOVE",
+      "pan_config": {
+        "source_field": "encryptedPrimaryAccountNumber",
+        "reason": "BNK001 ne veut pas stocker de PAN, même chiffré (conformité stricte)"
+      },
+      "pgp_encryption": {
+        "enabled": true,
+        "public_key_path": "/keys/pgp/bnk001-public.asc",
+        "armor": true,
+        "reason": "Chiffrement PGP obligatoire pour tous les fichiers"
+      },
+      "s3_config": {
+        "bucket": "banking-payments",
+        "path_prefix": "bnk001"
+      }
+    },
+    "BNK002": {
+      "name": "Crédit Populaire",
+      "pan_strategy": "DECRYPT",
+      "pan_config": {
+        "source_field": "encryptedPrimaryAccountNumber",
+        "target_field": "primaryAccountNumber",
+        "private_key_path": "/keys/bank-private-key.pem",
+        "reason": "BNK002 déchiffre le PAN pour traitement interne (système legacy)"
+      },
+      "pgp_encryption": {
+        "enabled": false,
+        "reason": "Pas de chiffrement PGP - chiffrement S3 suffisant"
+      },
+      "s3_config": {
+        "bucket": "banking-payments",
+        "path_prefix": "bnk002"
+      }
+    },
+    "BNK003": {
+      "name": "Banque Internationale",
+      "pan_strategy": "REKEY",
+      "pan_config": {
+        "source_field": "encryptedPrimaryAccountNumber",
+        "target_field": "encryptedPrimaryAccountNumber",
+        "private_key_path": "/keys/bank-private-key.pem",
+        "partner_keys_mapping": {
+          "BNK003": "/keys/partners/bnk003-public.pem"
+        },
+        "reason": "BNK003 re-chiffre avec sa propre clé publique pour isolation"
+      },
+      "pgp_encryption": {
+        "enabled": true,
+        "public_key_path": "/keys/pgp/bnk003-public.asc",
+        "armor": false,
+        "reason": "Chiffrement PGP binaire pour optimiser l'espace"
+      },
+      "s3_config": {
+        "bucket": "banking-payments",
+        "path_prefix": "bnk003"
+      }
+    },
+    "BNK004": {
+      "name": "Banque Régionale",
+      "pan_strategy": "NONE",
+      "pan_config": {
+        "reason": "BNK004 n'envoie jamais de PAN dans les messages (pas de champ PAN)"
+      },
+      "pgp_encryption": {
+        "enabled": true,
+        "public_key_path": "/keys/pgp/bnk004-public.asc",
+        "armor": true,
+        "reason": "Chiffrement PGP pour conformité réglementaire"
+      },
+      "s3_config": {
+        "bucket": "banking-payments",
+        "path_prefix": "bnk004"
+      }
+    },
+    "BNK005": {
+      "name": "Banque Digitale",
+      "pan_strategy": "DECRYPT",
+      "pan_config": {
+        "source_field": "encryptedPrimaryAccountNumber",
+        "target_field": "tokenizedPAN",
+        "private_key_path": "/keys/bank-private-key.pem",
+        "tokenize": true,
+        "reason": "BNK005 déchiffre et tokenise le PAN (PCI-DSS Level 1)"
+      },
+      "pgp_encryption": {
+        "enabled": true,
+        "public_key_path": "/keys/pgp/bnk005-public.asc",
+        "armor": true,
+        "reason": "Double chiffrement: PGP + S3 pour sécurité maximale"
+      },
+      "s3_config": {
+        "bucket": "banking-payments",
+        "path_prefix": "bnk005"
+      }
+    }
+  },
+  "default": {
+    "name": "Configuration par défaut",
+    "pan_strategy": "REMOVE",
+    "pan_config": {
+      "source_field": "encryptedPrimaryAccountNumber",
+      "reason": "Par défaut, on supprime le PAN pour la sécurité"
+    },
+    "pgp_encryption": {
+      "enabled": false,
+      "reason": "Pas de chiffrement PGP par défaut"
+    },
+    "s3_config": {
+      "bucket": "banking-payments",
+      "path_prefix": "default"
+    }
+  }
+}
