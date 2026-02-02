@@ -1,0 +1,135 @@
+# ====================================================================
+# Banking Kafka Connect POC - .gitignore
+# ====================================================================
+
+# === KEYS AND SECRETS ===
+# CRITICAL: Never commit private keys or secrets!
+config/*/keys/**/*.pem
+config/*/keys/**/*.key
+config/*/keys/**/*.asc
+config/*/keys/**/*.pgp
+*.p12
+*.jks
+*.keystore
+
+# Allow README files in keys directories
+!config/*/keys/README.md
+
+# Secrets files
+*.secret
+*.credentials
+.env.local
+.env.production
+
+# === BUILD ARTIFACTS ===
+target/
+build/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd
+pom.xml.versionsBackup
+
+# Gradle
+.gradle/
+gradle/
+gradlew
+gradlew.bat
+
+# === IDE ===
+# IntelliJ
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# VSCode
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Eclipse
+.classpath
+.project
+.settings/
+bin/
+
+# === RUNTIME ===
+# Logs
+logs/
+*.log
+*.log.*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === KAFKA CONNECT ===
+# Connect runtime data
+connect-data/
+connect-offsets/
+connect-configs/
+connect-status/
+
+# === DOCKER ===
+# Docker volumes
+docker/data/
+docker/volumes/
+
+# === TESTING ===
+# Test output
+test-output/
+test-results/
+coverage/
+*.coverage
+
+# JUnit
+junit/
+surefire-reports/
+
+# === GENERATED FILES ===
+# Generated configuration
+config/generated/
+*.generated
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# === TERRAFORM (if used for cloud deployment) ===
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+
+# === HELM (if used for K8s deployment) ===
+charts/*/charts/
+charts/*/Chart.lock
+
+# === DOCUMENTATION ===
+# Keep documentation but ignore generated docs
+docs/generated/
+
+# === METRICS AND MONITORING ===
+# Local metrics data
+metrics/
+prometheus-data/

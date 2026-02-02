@@ -1,0 +1,225 @@
+version: '3.8'
+
+services:
+  # ====================================================================
+  # ZOOKEEPER
+  # ====================================================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    hostname: zookeeper
+    container_name: banking-zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_LOG4J_ROOT_LOGLEVEL: WARN
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    networks:
+      - banking-network
+
+  # ====================================================================
+  # KAFKA BROKER
+  # ====================================================================
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    hostname: kafka
+    container_name: banking-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - banking-network
+    healthcheck:
+      test: kafka-broker-api-versions --bootstrap-server localhost:9092
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ====================================================================
+  # KAFKA CONNECT
+  # ====================================================================
+  kafka-connect:
+    image: confluentinc/cp-kafka-connect:7.6.0
+    hostname: kafka-connect
+    container_name: banking-kafka-connect
+    depends_on:
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: 'kafka:29092'
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: banking-connect-group
+      CONNECT_CONFIG_STORAGE_TOPIC: banking-connect-configs
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
+      CONNECT_OFFSET_STORAGE_TOPIC: banking-connect-offsets
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_TOPIC: banking-connect-status
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components,/custom-connectors"
+      CONNECT_LOG4J_ROOT_LOGLEVEL: INFO
+      CONNECT_LOG4J_LOGGERS: "org.apache.kafka.connect.runtime.rest=WARN,org.reflections=ERROR"
+      # AWS SDK configuration for MinIO
+      AWS_REGION: us-east-1
+    volumes:
+      - ./connectors:/custom-connectors
+      - ../config/local/keys:/keys:ro
+      - ../config/local:/config:ro
+      - connect-data:/tmp
+    networks:
+      - banking-network
+    command:
+      - bash
+      - -c
+      - |
+        echo "Installing Confluent S3 Sink Connector..."
+        confluent-hub install --no-prompt confluentinc/kafka-connect-s3:10.5.0
+        echo "Starting Kafka Connect..."
+        /etc/confluent/docker/run
+    healthcheck:
+      test: curl -f http://localhost:8083/ || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ====================================================================
+  # MINIO (S3-compatible Object Storage)
+  # ====================================================================
+  minio:
+    image: minio/minio:latest
+    hostname: minio
+    container_name: banking-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_REGION: us-east-1
+    volumes:
+      - minio-data:/data
+    networks:
+      - banking-network
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ====================================================================
+  # MINIO CLIENT (for bucket creation)
+  # ====================================================================
+  minio-init:
+    image: minio/mc:RELEASE.2024-01-18T07-03-39Z
+    container_name: banking-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - banking-network
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      /usr/bin/mc config host add minio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb --ignore-existing minio/banking-payments;
+      /usr/bin/mc mb --ignore-existing minio/banking-config;
+      /usr/bin/mc policy set download minio/banking-payments;
+      echo 'MinIO buckets created successfully';
+      exit 0;
+      "
+
+  # ====================================================================
+  # SCHEMA REGISTRY (Optional - useful for Avro support in future)
+  # ====================================================================
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    hostname: schema-registry
+    container_name: banking-schema-registry
+    depends_on:
+      - kafka
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka:29092'
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_LOG4J_ROOT_LOGLEVEL: WARN
+    networks:
+      - banking-network
+    profiles:
+      - with-schema-registry
+
+  # ====================================================================
+  # KAFKA UI (for development/debugging)
+  # ====================================================================
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: banking-kafka-ui
+    depends_on:
+      - kafka
+      - kafka-connect
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: banking-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: banking-connect
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    networks:
+      - banking-network
+    profiles:
+      - with-ui
+
+# ====================================================================
+# NETWORKS
+# ====================================================================
+networks:
+  banking-network:
+    driver: bridge
+    name: banking-network
+
+# ====================================================================
+# VOLUMES
+# ====================================================================
+volumes:
+  zookeeper-data:
+    name: banking-zookeeper-data
+  zookeeper-logs:
+    name: banking-zookeeper-logs
+  kafka-data:
+    name: banking-kafka-data
+  minio-data:
+    name: banking-minio-data
+  connect-data:
+    name: banking-connect-data

@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker ps:*)",
+      "Bash(sudo apt-get:*)",
+      "Bash(java:*)",
+      "Bash(docker --version:*)",
+      "Bash(mvn:*)",
+      "Bash(curl:*)",
+      "Bash(tar:*)",
+      "Bash(sudo mv:*)",
+      "Bash(sudo ln:*)",
+      "Bash(sudo service docker status:*)",
+      "Bash(./scripts/generate-test-keys.sh:*)",
+      "Bash(./scripts/start-local-env.sh:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker logs:*)",
+      "Bash(for i in {1..20})",
+      "Bash(do echo \"Tentative $i...\")",
+      "Bash(if curl -s http://localhost:8083/)",
+      "Bash(then echo \"✓ Kafka Connect est prêt!\")",
+      "Bash(break)",
+      "Bash(else sleep 5)",
+      "Bash(fi)",
+      "Bash(done)",
+      "Bash(docker exec:*)",
+      "Bash(for i in {1..30})",
+      "Bash(do if curl -s http://localhost:8083/)",
+      "Bash(then echo \"✓ Kafka Connect est opérationnel!\")",
+      "Bash(else echo -n \"Tentative $i/30... \")",
+      "Bash(ls:*)",
+      "Bash(sudo mkdir:*)",
+      "Bash(sudo cp:*)"
+    ]
+  }
+}

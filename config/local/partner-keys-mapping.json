@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Mapping des institutions bancaires vers leurs clés publiques pour le transchiffrement (REKEY mode)",
+  "version": "1.0",
+  "lastUpdated": "2026-02-02",
+  "keys": {
+    "BNK001": {
+      "name": "Banque Partenaire 001",
+      "publicKeyPath": "/keys/partners/bnk001-public.pem",
+      "keyId": "bnk001-key-2026-01",
+      "algorithm": "RSA-OAEP-256",
+      "encryption": "A256GCM",
+      "enabled": true,
+      "validFrom": "2026-01-01T00:00:00Z",
+      "validTo": "2027-01-01T00:00:00Z"
+    },
+    "BNK002": {
+      "name": "Banque Partenaire 002",
+      "publicKeyPath": "/keys/partners/bnk002-public.pem",
+      "keyId": "bnk002-key-2026-01",
+      "algorithm": "RSA-OAEP-256",
+      "encryption": "A256GCM",
+      "enabled": true,
+      "validFrom": "2026-01-01T00:00:00Z",
+      "validTo": "2027-01-01T00:00:00Z"
+    },
+    "BNK003": {
+      "name": "Banque Partenaire 003",
+      "publicKeyPath": "/keys/partners/bnk003-public.pem",
+      "keyId": "bnk003-key-2026-01",
+      "algorithm": "RSA-OAEP-256",
+      "encryption": "A256GCM",
+      "enabled": false,
+      "comment": "Key rotation in progress",
+      "validFrom": "2026-01-01T00:00:00Z",
+      "validTo": "2027-01-01T00:00:00Z"
+    }
+  },
+  "default": {
+    "strategy": "REMOVE",
+    "comment": "Si l'institution n'est pas dans le mapping, supprimer le PAN par défaut"
+  }
+}
