@@ -40,12 +40,15 @@ Ce POC vise à démontrer la faisabilité d'une solution Kafka Connect pour :
 │  │  └──────────────────────────────────────────────────────┘  │  │
 │  │                                                             │  │
 │  │  ┌──────────────────────────────────────────────────────┐  │  │
-│  │  │  Custom Partitioner                                  │  │  │
+│  │  │  Custom Partitioner (Murmur2 / CSV mapping)          │  │  │
 │  │  │  Path: institution/event-type/version/date-time      │  │  │
+│  │  │  • 20 partitions, ~10 banques par task               │  │  │
+│  │  │  • Mapping CSV déterministe ou Murmur2 fallback      │  │  │
 │  │  └──────────────────────────────────────────────────────┘  │  │
 │  │                                                             │  │
 │  │  ┌──────────────────────────────────────────────────────┐  │  │
-│  │  │  Bank-Specific PGP Encryption                        │  │  │
+│  │  │  PGP Streaming Encryption (PGPOutputStreamWrapper)   │  │  │
+│  │  │  • Chiffrement à la volée, zéro buffering mémoire    │  │  │
 │  │  │  • BNK001: ASCII armor + PAN removed                 │  │  │
 │  │  │  • BNK002: No PGP + PAN decrypted                    │  │  │
 │  │  │  • BNK003: Binary PGP + PAN rekeyed                  │  │  │
@@ -205,13 +208,30 @@ Exemple:
 BNK001/PAYMENT_AUTHORIZED/v1/year=2026/month=02/day=02/hour=14/payments-000001.jsonl
 ```
 
+**Modes de partitioning Kafka (côté producteur)**:
+
+1. **Mapping CSV déterministe** (recommandé pour 200+ banques):
+   - Fichier CSV `bank-partition-mapping.csv` assigne chaque banque à une partition
+   - Contrôle total sur la distribution, pas de hotspots
+   - Format: `bankCode,partitionNumber` (une ligne par banque)
+
+2. **Murmur2 hashing** (fallback):
+   - Même algorithme que le `DefaultPartitioner` de Kafka
+   - Distribution raisonnable sans configuration explicite
+   - Remplace `String.hashCode()` qui causait des distributions inégales
+
 **Configuration**:
 ```properties
 partitioner.class=com.banking.kafka.partitioner.BankingHierarchicalPartitioner
 partitioner.institution.header=X-Institution-Id
 partitioner.event.type.header=X-Event-Type
 partitioner.event.version.header=X-Event-Version
+
+# Mapping déterministe (optionnel, recommandé pour 200+ banques)
+partitioner.bank.partition.mapping.file=/config/banks/bank-partition-mapping.csv
 ```
+
+**Scaling**: Avec 20 partitions et 20 tasks, chaque task gère ~10 banques (~60 fichiers ouverts, ~150 MB de buffers).
 
 ---
 
@@ -288,14 +308,40 @@ transforms.transformPANPerBank.institution.id.header=X-Institution-Id
 
 Le chiffrement PGP est configuré individuellement pour chaque banque via `BankPGPEncryptor`.
 
-**Configuration globale (legacy)**:
-```properties
-pgp.encryption.enabled=true
-pgp.public.key.path=/keys/recipient-pgp-public.asc
-pgp.armor=false  # Binary PGP pour performances
+**Architecture streaming (PGPOutputStreamWrapper)**:
+
+Le chiffrement PGP utilise un pipeline de streams chaînés pour chiffrer les données à la volée,
+sans jamais charger le fichier entier en mémoire :
+
+```
+write() → LiteralData → ZIP compression → AES-256 encryption → [ASCII armor] → S3 OutputStream
 ```
 
-**Configuration multi-banques (recommandée)**:
+La classe `PGPOutputStreamWrapper` étend `OutputStream` et wraps n'importe quel flux de sortie
+(S3 upload stream, fichier, etc.) avec les couches BouncyCastle PGP. Cela élimine le problème
+de mémoire de l'ancienne approche qui chargeait tout le fichier en `byte[]` avant chiffrement.
+
+**Empreinte mémoire**: ~8 KB de buffer par stream (indépendant de la taille du fichier).
+
+**API streaming (recommandée)**:
+```java
+// Via BankPGPEncryptor — retourne un OutputStream transparent si PGP désactivé
+OutputStream out = bankPGPEncryptor.createStreamingEncryptorForBank("BNK001", s3OutputStream);
+out.write(record1Bytes);
+out.write(record2Bytes);
+out.close();
+
+// Via PGPEncryptionHandler directement
+PGPOutputStreamWrapper pgpOut = handler.createStreamingEncryptor(target, publicKey, armor);
+```
+
+**API batch (legacy, pour rétrocompatibilité)**:
+```java
+byte[] encrypted = handler.encrypt(data, publicKey, armor);
+byte[] encrypted = bankPGPEncryptor.encryptForBank("BNK001", data);
+```
+
+**Configuration multi-banques**:
 
 Chaque banque définit dans `bank-config.json`:
 ```json
@@ -323,8 +369,8 @@ Chaque banque définit dans `bank-config.json`:
 - **BNK005**: PGP ASCII armor + double chiffrement S3
 
 **Implémentation**:
-- Wrapper autour de l'output stream S3 avec BouncyCastle PGP
-- Cache des clés publiques par banque
+- `PGPOutputStreamWrapper`: Wrapper streaming autour de l'output stream S3 avec BouncyCastle
+- Cache des clés publiques par banque (`ConcurrentHashMap`)
 - Sélection automatique du format (armor/binary) par banque
 
 ---
@@ -521,7 +567,7 @@ Toutes les configurations sont externalisées:
 # === CONNECTOR BASE ===
 name=banking-s3-sink-connector
 connector.class=io.confluent.connect.s3.S3SinkConnector
-tasks.max=3
+tasks.max=20  # 20 tasks pour ~10 banques/task à 200 banques
 
 # === KAFKA ===
 topics=payments-in
@@ -591,12 +637,16 @@ errors.deadletterqueue.context.headers.enable=true
 ### Phase 4: Custom Partitioner ✅
 - ✅ BankingHierarchicalPartitioner
 - ✅ Partitioning hiérarchique institution/event/version/date
-- ✅ Tests unitaires (4 tests)
+- ✅ Murmur2 hashing (remplace String.hashCode())
+- ✅ Mapping CSV déterministe banque→partition
+- ✅ Tests unitaires (18 tests, dont distribution 200 banques/20 partitions)
 
 ### Phase 5: PGP Encryption ✅
 - ✅ PGPEncryptionHandler avec BouncyCastle
 - ✅ Support ASCII armor et binaire
 - ✅ Tests de chiffrement/déchiffrement
+- ✅ PGPOutputStreamWrapper pour chiffrement streaming (zéro buffering mémoire)
+- ✅ Tests streaming (multi-writes, 5 MB chunked, compatibilité batch/stream)
 
 ### Phase 6: Configuration Multi-Banques ✅
 - ✅ BankConfigManager pour gestion centralisée
@@ -606,12 +656,17 @@ errors.deadletterqueue.context.headers.enable=true
 - ✅ 5 scénarios de banques (BNK001-BNK005)
 - ✅ Documentation complète (MULTI_BANK_SETUP.md)
 
-### Phase 7: Testing E2E ✅
-- ✅ 31 tests unitaires passing
+### Phase 7: Scaling & Streaming PGP ✅
+- ✅ 45 tests unitaires passing
 - ✅ Docker Compose E2E setup
 - ✅ Test producers pour tous les scénarios
 
-### Phase 8: Cloud Deployment (À venir)
+### Phase 8: Testing E2E (À venir)
+- ⏳ Déployer localement avec Docker Compose
+- ⏳ Validation MinIO (fichiers par banque)
+- ⏳ Tests de charge (1000+ messages, 200 banques)
+
+### Phase 9: Cloud Deployment (À venir)
 - ⏳ Configuration IBM COS
 - ⏳ Intégration IBM Key Protect
 - ⏳ Déploiement sur IKS/OpenShift

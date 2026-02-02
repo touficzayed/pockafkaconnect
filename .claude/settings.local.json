@@ -31,7 +31,8 @@
       "Bash(ls:*)",
       "Bash(sudo mkdir:*)",
       "Bash(sudo cp:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

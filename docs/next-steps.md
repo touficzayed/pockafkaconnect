@@ -4,26 +4,32 @@ Ce document décrit les prochaines étapes pour implémenter le POC Banking Kafk
 
 ## État Actuel
 
-✅ **Phases 1-6: Implémentation Core (TERMINÉ)**
+✅ **Phases 1-7: Implémentation Core + Scaling (TERMINÉ)**
 
 - ✅ **Phase 1**: Setup environnement (Maven, Docker Compose, Kafka, MinIO)
-- ✅ **Phase 2**: HeadersToPayloadTransform (15 tests passants)
-- ✅ **Phase 3**: PANTransformationSMT (12 tests passants) - REMOVE, DECRYPT, REKEY
-- ✅ **Phase 4**: BankingHierarchicalPartitioner (4 tests passants)
-- ✅ **Phase 5**: PGP Encryption avec BouncyCastle
+- ✅ **Phase 2**: HeadersToPayloadTransform (7 tests passants)
+- ✅ **Phase 3**: PANTransformationSMT (3 tests passants) - REMOVE, DECRYPT, REKEY
+- ✅ **Phase 4**: BankingHierarchicalPartitioner (18 tests passants)
+- ✅ **Phase 5**: PGP Encryption avec BouncyCastle (17 tests passants)
 - ✅ **Phase 6**: Configuration Multi-Banques
   - BankConfigManager pour configuration centralisée
   - Configuration JSON par banque (5 banques: BNK001-BNK005)
   - BankPGPEncryptor pour chiffrement PGP par banque
   - MultiBankPaymentProducer pour tests multi-banques
   - Documentation complète (MULTI_BANK_SETUP.md)
+- ✅ **Phase 7**: Scaling et Streaming PGP
+  - Partitionneur Murmur2 + mapping CSV déterministe (remplace String.hashCode())
+  - PGPOutputStreamWrapper pour chiffrement streaming (zéro buffering mémoire)
+  - Configuration 20 partitions / 20 tasks pour 200+ banques
+  - Tests de distribution 200 banques sur 20 partitions
 
-**Total: 31 tests unitaires passants**
+**Total: 45 tests unitaires passants**
 
 **Fonctionnalités clés implémentées:**
 - Transformation PAN avec stratégies par banque (REMOVE/DECRYPT/REKEY/NONE)
-- Chiffrement PGP optionnel et configurable par banque (ASCII/Binaire)
-- Partitioning hiérarchique institution/event-type/version/date
+- Chiffrement PGP streaming via `PGPOutputStreamWrapper` (zéro buffering mémoire)
+- Partitioning déterministe (CSV) ou Murmur2 — scalable à 200+ banques
+- 20 tasks parallèles (~10 banques/task)
 - Gestion centralisée des configurations multi-banques
 - Support de 5 scénarios bancaires couvrant tous les cas d'usage
 
@@ -470,8 +476,8 @@ done
 - [x] Tests unitaires (12 tests)
 
 ### Phase 4: Partitioner ✅
-- [x] Implémenter BankingHierarchicalPartitioner
-- [x] Tests unitaires (4 tests)
+- [x] Implémenter BankingHierarchicalPartitioner (Murmur2 + CSV mapping)
+- [x] Tests unitaires (18 tests, dont distribution 200 banques/20 partitions)
 - [x] Valider les chemins générés
 
 ### Phase 5: PGP ✅

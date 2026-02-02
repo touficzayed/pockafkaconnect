@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-11%2B-orange.svg)](https://openjdk.java.net/)
 [![Kafka](https://img.shields.io/badge/Kafka-3.6%2B-black.svg)](https://kafka.apache.org/)
-[![Tests](https://img.shields.io/badge/Tests-31%20passing-brightgreen.svg)](src/test/java/)
+[![Tests](https://img.shields.io/badge/Tests-45%20passing-brightgreen.svg)](src/test/java/)
 
 ## Vue d'ensemble
 
@@ -13,9 +13,9 @@ POC d'un connecteur Kafka Connect personnalisé pour le traitement de messages m
 
 - **🏦 Multi-banques**: Configuration différenciée par institution bancaire
 - **🔐 Transformation du PAN**: 4 stratégies (REMOVE, DECRYPT, REKEY, NONE) pour gérer les numéros de carte chiffrés en JWE/RSA
-- **🔒 Chiffrement PGP**: Couche de chiffrement supplémentaire configurable par banque
+- **🔒 Chiffrement PGP streaming**: Chiffrement à la volée sans buffering mémoire, configurable par banque
 - **🎭 Multi-tenant**: Routage intelligent par institution bancaire via headers Kafka
-- **📊 Partitioning hiérarchique**: Organisation par institution/type-event/version/date-heure
+- **📊 Partitioning déterministe**: Mapping CSV banque→partition ou Murmur2, 20 partitions/tasks pour scaling à 200+ banques
 - **📝 Format JSONL**: Export streamable avec headers Kafka préservés
 - **☁️ Cloud-ready**: Support MinIO (local) et IBM COS (cloud)
 
@@ -27,10 +27,11 @@ POC d'un connecteur Kafka Connect personnalisé pour le traitement de messages m
 - ✅ **Phase 4**: Custom Partitioner (routage par institution)
 - ✅ **Phase 5**: PGP Encryption (chiffrement par banque)
 - ✅ **Phase 6**: Configuration multi-banques
-- ⏳ **Phase 7**: Tests E2E et déploiement
-- ⏳ **Phase 8**: Déploiement IBM Cloud
+- ✅ **Phase 7**: Partitioning déterministe (Murmur2 + CSV) et streaming PGP
+- ⏳ **Phase 8**: Tests E2E et déploiement
+- ⏳ **Phase 9**: Déploiement IBM Cloud
 
-**31 tests unitaires** - 100% passants
+**45 tests unitaires** - 100% passants
 
 ## Architecture
 
@@ -41,14 +42,14 @@ Producer (Multi-Bank)
    ↓ (messages avec headers par banque)
 Kafka Topic (payments-in)
    ↓ (partitionnement par institution)
-Kafka Connect
+Kafka Connect (20 tasks parallèles)
    ├─ HeadersToPayloadTransform → Extrait headers vers payload
    ├─ PANTransformationSMT → Transformation selon config banque
-   └─ BankingHierarchicalPartitioner → Routage par institution
+   └─ BankingHierarchicalPartitioner → Murmur2 / mapping CSV déterministe
    ↓
 S3 Sink Connector
-   ↓ (fichiers JSONL par banque)
-Post-Processing PGP (optionnel par banque)
+   ↓ (fichiers JSONL par banque, chiffrement PGP streaming intégré)
+PGPOutputStreamWrapper (chiffrement à la volée, zéro buffering)
    ↓
 MinIO/IBM COS
    └─ bnk001/, bnk002/, bnk003/, ...
@@ -162,26 +163,29 @@ kafka-connect-banking-poc/
 │       ├── transforms/            # Single Message Transforms
 │       │   ├── HeadersToPayloadTransform.java
 │       │   └── PANTransformationSMT.java
-│       ├── partitioner/           # Custom partitioner
+│       ├── partitioner/           # Custom partitioner (Murmur2 + CSV mapping)
 │       │   └── BankingHierarchicalPartitioner.java
 │       └── crypto/                # JWE/PGP handlers
 │           ├── JWEHandler.java
 │           ├── PGPEncryptionHandler.java
+│           ├── PGPOutputStreamWrapper.java  # Streaming PGP (zéro buffering)
 │           ├── BankPGPEncryptor.java
 │           └── FileKeyStorageProvider.java
-├── src/test/java/                 # Tests (31 tests)
+├── src/test/java/                 # Tests (45 tests)
 │   └── com/banking/kafka/
 │       ├── transforms/            # Tests SMTs (10 tests)
-│       ├── partitioner/           # Tests partitioner (10 tests)
-│       ├── crypto/                # Tests crypto (11 tests)
+│       ├── partitioner/           # Tests partitioner (18 tests)
+│       ├── crypto/                # Tests crypto (17 tests)
 │       └── integration/           # Producers de test
 │           ├── BankingPaymentProducer.java
 │           └── MultiBankPaymentProducer.java
 ├── config/                        # Configurations
 │   ├── banks/                     # Config multi-banques
-│   │   └── bank-config.json
+│   │   ├── bank-config.json
+│   │   └── bank-partition-mapping.csv  # Mapping déterministe banque→partition
 │   ├── connectors/                # Config connecteurs
-│   │   └── s3-sink-connector.json
+│   │   ├── s3-sink-connector.json
+│   │   └── s3-sink-connector-multibank.json  # 20 tasks + mapping CSV
 │   └── local/                     # Config environnement local
 │       └── keys/                  # Clés de chiffrement (gitignored)
 ├── docker/                        # Infrastructure locale
@@ -308,14 +312,15 @@ bnk001/year=2026/month=02/day=02/hour=14/payments-in+0+0000000000.json
 - **PCI-DSS**: Le PAN en clair n'existe jamais sur disque, seulement en mémoire
 - **Clés privées**: Stockées hors du repository (`.gitignore`)
 - **Multi-tenant**: Isolation par banque avec re-chiffrement
-- **PGP**: Couche de chiffrement supplémentaire configurable
+- **PGP streaming**: Chiffrement à la volée via `PGPOutputStreamWrapper` — zéro buffering mémoire, scalable à 200+ banques
+- **Partitioning déterministe**: Mapping CSV explicite banque→partition pour distribution prévisible de la charge
 - **Production**: Utilisation d'IBM Key Protect pour la gestion des clés
 - **Transport**: TLS activé sur Kafka et COS en production
 
 ## Tests
 
 ```bash
-# Tests unitaires (31 tests)
+# Tests unitaires (45 tests)
 mvn test
 
 # Tests d'intégration

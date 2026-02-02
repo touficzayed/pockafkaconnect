@@ -156,16 +156,17 @@ Ce guide explique comment configurer le pipeline pour gérer plusieurs banques a
 
 ## Configuration du Connecteur
 
-### Option 1: Configuration Globale (Un connecteur pour toutes les banques)
+### Option 1: Configuration Globale (Un connecteur pour toutes les banques) — Recommandée
 
 ```json
 {
   "name": "banking-s3-sink-multibank",
   "config": {
     "connector.class": "io.confluent.connect.s3.S3SinkConnector",
+    "tasks.max": "20",
     "topics": "payments-in",
 
-    "transforms": "extractHeaders,transformPANPerBank,addBankPrefix",
+    "transforms": "extractHeaders,transformPANPerBank",
 
     "transforms.extractHeaders.type": "com.banking.kafka.transforms.HeadersToPayloadTransform",
     "transforms.extractHeaders.mandatory.headers": "X-Institution-Id,X-Event-Type",
@@ -176,9 +177,18 @@ Ce guide explique comment configurer le pipeline pour gérer plusieurs banques a
     "transforms.transformPANPerBank.institution.id.header": "X-Institution-Id",
 
     "s3.bucket.name": "banking-payments",
-    "partitioner.class": "com.banking.kafka.partitioner.BankingHierarchicalPartitioner"
+    "partitioner.class": "com.banking.kafka.partitioner.BankingHierarchicalPartitioner",
+    "partitioner.bank.partition.mapping.file": "/config/banks/bank-partition-mapping.csv"
   }
 }
+```
+
+**Partitioning**: Le partitionneur supporte deux modes:
+- **Mapping CSV déterministe** via `bank-partition-mapping.csv` — contrôle total de la distribution
+- **Murmur2 hashing** (fallback pour les banques non listées dans le CSV)
+
+**Scaling**: Avec 20 partitions Kafka et 20 tasks, chaque task gère ~10 banques.
+Le chiffrement PGP est en streaming (via `PGPOutputStreamWrapper`), sans buffering mémoire.
 ```
 
 ### Option 2: Configuration par Banque (Un connecteur par banque)
@@ -344,6 +354,36 @@ cat /tmp/decrypted.json | jq .
 | BNK003 | REKEY | ✅ Binaire | Isolation |
 | BNK004 | NONE | ✅ ASCII | Pas de PAN |
 | BNK005 | DECRYPT+Token | ✅ ASCII | Sécurité max |
+
+---
+
+## Mapping des Partitions (Scaling à 200+ banques)
+
+### Fichier `config/banks/bank-partition-mapping.csv`
+
+```csv
+# bankCode,partitionNumber
+# 20 partitions total, ~10 banques par partition
+BNK001,0
+BNK002,1
+BNK003,2
+BNK004,3
+BNK005,4
+# Étendre à 200 banques avec:
+# for i in $(seq 1 200); do printf "BNK%03d,%d\n" $i $(( (i-1) % 20 )); done
+```
+
+Les banques non listées tombent en fallback sur le hachage Murmur2 (même algo que le `DefaultPartitioner` Kafka).
+
+### Profil mémoire
+
+| Config | Banques/task | Fichiers ouverts/task | Mémoire buffers/task |
+|--------|-------------|----------------------|---------------------|
+| 20 tasks, 200 banques | ~10 | ~60 | ~150 MB |
+| 10 tasks, 200 banques | ~20 | ~120 | ~300 MB |
+| 3 tasks, 200 banques | ~67 | ~400 | ~1 GB |
+
+Le chiffrement PGP streaming (`PGPOutputStreamWrapper`) ajoute seulement ~8 KB par fichier ouvert.
 
 ---
 

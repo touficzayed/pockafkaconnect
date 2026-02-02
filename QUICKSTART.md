@@ -82,7 +82,7 @@ curl http://localhost:8083/connectors
 docker exec banking-kafka kafka-topics --create \
   --topic payments-in \
   --bootstrap-server localhost:9092 \
-  --partitions 3 \
+  --partitions 20 \
   --replication-factor 1
 ```
 
@@ -114,17 +114,18 @@ kafka-connect-banking-poc/
 │       │   ├── HeadersToPayloadTransform.java
 │       │   ├── PANTransformationSMT.java
 │       │   └── JSONLFormatTransform.java
-│       ├── partitioner/       ← Custom partitioner
+│       ├── partitioner/       ← Custom partitioner (Murmur2 + CSV mapping)
 │       │   └── BankingHierarchicalPartitioner.java
 │       ├── config/            ← Configuration multi-banques
 │       │   └── BankConfigManager.java
 │       └── crypto/            ← JWE/PGP handlers
 │           ├── JWEHandler.java
 │           ├── PGPEncryptionHandler.java
+│           ├── PGPOutputStreamWrapper.java  ← Streaming PGP (zéro buffering)
 │           ├── BankPGPEncryptor.java
 │           └── KeyStorageProvider.java
 │
-├── src/test/java/             ← Tests (31 tests passants ✅)
+├── src/test/java/             ← Tests (45 tests passants ✅)
 │   └── com/banking/kafka/
 │       ├── transforms/        ← Tests SMT
 │       ├── partitioner/       ← Tests partitioner
@@ -134,7 +135,8 @@ kafka-connect-banking-poc/
 │
 ├── config/                    ← Configurations
 │   ├── banks/                 ← Configuration multi-banques
-│   │   └── bank-config.json   ← Config JSON (BNK001-BNK005)
+│   │   ├── bank-config.json   ← Config JSON (BNK001-BNK005)
+│   │   └── bank-partition-mapping.csv  ← Mapping banque→partition
 │   ├── local/                 ← Environnement local
 │   │   ├── connector.properties
 │   │   ├── partner-keys-mapping.json
@@ -152,9 +154,9 @@ kafka-connect-banking-poc/
     └── start-local-env.sh
 ```
 
-## Tests Multi-Banques (Phases 1-6 Complétées ✅)
+## Tests Multi-Banques (Phases 1-7 Complétées ✅)
 
-Le POC est entièrement fonctionnel avec **31 tests passants**. Vous pouvez maintenant tester les différents scénarios bancaires.
+Le POC est entièrement fonctionnel avec **45 tests passants**. Vous pouvez maintenant tester les différents scénarios bancaires.
 
 ### Compiler et Packager
 
@@ -385,10 +387,11 @@ Le POC est **entièrement implémenté et testé**. Vous pouvez maintenant:
 5. **Préparer** le déploiement cloud (IBM Event Streams + COS)
 
 **État du projet:**
-- ✅ 31 tests unitaires passants
+- ✅ 45 tests unitaires passants
 - ✅ 5 scénarios bancaires implémentés (BNK001-BNK005)
 - ✅ Configuration multi-banques centralisée
-- ✅ Chiffrement PGP optionnel par banque
+- ✅ Chiffrement PGP streaming (zéro buffering mémoire)
+- ✅ Partitioning déterministe (Murmur2 + CSV mapping, 20 partitions/tasks)
 - ✅ Producer de test multi-banques
 - ⏳ Tests E2E avec Kafka Connect (prêt à déployer)
 - ⏳ Déploiement cloud IBM (à venir)

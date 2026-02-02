@@ -544,6 +544,11 @@ gpg --decrypt /tmp/encrypted.json | jq .
 
 Organise les fichiers selon: `institution/event-type/version/date-time/`
 
+Supporte deux modes de partitioning Kafka (côté producteur) :
+
+1. **Mapping CSV déterministe** : assigne explicitement chaque banque à une partition via un fichier CSV
+2. **Murmur2 hashing** (fallback) : hachage consistant identique au `DefaultPartitioner` de Kafka
+
 ```properties
 partitioner.class=com.banking.kafka.partitioner.BankingHierarchicalPartitioner
 ```
@@ -558,12 +563,40 @@ partitioner.class=com.banking.kafka.partitioner.BankingHierarchicalPartitioner
 | `partitioner.default.institution` | string | UNKNOWN | Valeur par défaut si header absent |
 | `partitioner.default.event.type` | string | UNCLASSIFIED | Valeur par défaut si header absent |
 | `partitioner.default.event.version` | string | v0 | Valeur par défaut si header absent |
+| `bank.partition.mapping.file` | string | - | Chemin vers le fichier CSV de mapping banque→partition |
+
+#### Fichier de mapping CSV
+
+Format: une ligne par banque, `bankCode,partitionNumber`. Commentaires avec `#`.
+
+```csv
+# Mapping déterministe 200 banques → 20 partitions
+BNK001,0
+BNK002,1
+BNK003,2
+# ...
+BNK200,19
+```
+
+Les banques non listées dans le CSV sont routées par Murmur2 hashing.
+
+Pour générer un mapping équilibré:
+```bash
+for i in $(seq 1 200); do printf "BNK%03d,%d\n" $i $(( (i-1) % 20 )); done > bank-partition-mapping.csv
+```
 
 #### Exemple de chemin généré
 
 ```
 BNK001/PAYMENT_AUTHORIZED/v1/year=2026/month=02/day=02/hour=14/payments-000001.jsonl
 ```
+
+#### Scaling (20 partitions / 20 tasks)
+
+Avec 200 banques et 20 tasks, chaque task gère ~10 banques:
+- ~60 fichiers ouverts par task (10 banques × 3 event types × 2 versions)
+- ~150 MB de buffers mémoire par task
+- Heap JVM recommandé: 2-3 GB par worker
 
 ---
 
@@ -614,7 +647,25 @@ transforms.panTransform.ibm.key.protect.private.key.id=${PRIVATE_KEY_ID}
 
 ## PGP Encryption
 
-Chiffrement optionnel des fichiers en streaming avec PGP.
+Chiffrement streaming des fichiers avec PGP via `PGPOutputStreamWrapper`.
+
+Les données sont chiffrées à la volée sans charger le fichier entier en mémoire.
+Empreinte mémoire: ~8 KB de buffer par stream, indépendamment de la taille du fichier.
+
+### Modes d'utilisation
+
+**Streaming (recommandé pour S3 Sink)**:
+```java
+// Wraps l'OutputStream S3 avec chiffrement PGP transparent
+OutputStream out = bankPGPEncryptor.createStreamingEncryptorForBank("BNK001", s3OutputStream);
+out.write(recordBytes); // Chiffré à la volée
+out.close();
+```
+
+**Batch (rétrocompatibilité)**:
+```java
+byte[] encrypted = pgpHandler.encrypt(data, publicKey, armor);
+```
 
 ### Activation
 
@@ -705,16 +756,25 @@ errors.retry.delay.max.ms=5000
 ### Batch Processing
 
 ```properties
-flush.size=1000
-rotate.schedule.interval.ms=300000
+flush.size=100        # Réduit pour 200+ banques (limite les buffers mémoire par fichier)
+rotate.schedule.interval.ms=60000  # 1 minute pour libérer les buffers plus vite
 s3.part.size=5242880
 ```
 
 | Paramètre | Type | Défaut | Description |
 |-----------|------|--------|-------------|
-| `flush.size` | int | 1000 | Records par fichier avant flush |
-| `rotate.schedule.interval.ms` | int | 60000 | Rotation temporelle (ms) |
+| `flush.size` | int | 1000 | Records par fichier avant flush. Réduire à 100-200 pour 200+ banques |
+| `rotate.schedule.interval.ms` | int | 60000 | Rotation temporelle (ms). Réduire pour libérer les buffers |
 | `s3.part.size` | int | 5242880 | Taille des parts S3 multipart (bytes) |
+| `tasks.max` | int | 1 | 20 recommandé pour 200 banques (10 banques/task) |
+
+### Profils mémoire par nombre de banques
+
+| Banques | tasks.max | flush.size | rotate.ms | Heap/worker |
+|---------|-----------|------------|-----------|-------------|
+| 5 | 3 | 1000 | 300000 | 1 GB |
+| 50 | 10 | 500 | 120000 | 2 GB |
+| 200 | 20 | 100 | 60000 | 3 GB |
 
 ### Consumer
 
