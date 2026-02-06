@@ -31,7 +31,7 @@
     "transforms.transformPAN.type": "com.banking.kafka.transforms.PANTransformationSMT",
     "transforms.transformPAN.source.field": "encryptedPrimaryAccountNumber",
     "transforms.transformPAN.default.strategy": "REMOVE",
-    "transforms.transformPAN.rules": "BNK001:PAYMENT:*:MASK,BNK002:*:*:DECRYPT",
+    "transforms.transformPAN.rules": "BNK001:*:*:MASK,BNK002:*:*:MASK,BNK003:*:*:MASK",
 
     "transforms.extractHeaders.type": "com.banking.kafka.transforms.HeadersToPayloadTransform",
     "transforms.extractHeaders.mandatory.headers": "X-Institution-Id,X-Event-Type,X-Event-Version,X-Event-Id",
