@@ -35,7 +35,7 @@ import java.util.Map;
  *
  * Strategies:
  * - REMOVE: Remove the encrypted PAN field completely
- * - MASK: Mask PAN showing only last 4 digits (e.g., ****1234)
+ * - MASK: Mask PAN showing first 6 and last 4 digits (e.g., 123456******1234)
  * - DECRYPT: Decrypt JWE-encrypted PAN to plaintext
  * - REKEY: Decrypt PAN with our key, re-encrypt with partner's key
  *
@@ -61,7 +61,8 @@ public class PANTransformationSMT<R extends ConnectRecord<R>> implements Transfo
     private static final String EVENT_TYPE_HEADER_CONFIG = "event.type.header";
     private static final String VERSION_HEADER_CONFIG = "version.header";
     private static final String MASK_CHARACTER_CONFIG = "mask.character";
-    private static final String MASK_VISIBLE_DIGITS_CONFIG = "mask.visible.digits";
+    private static final String MASK_PREFIX_DIGITS_CONFIG = "mask.prefix.digits";
+    private static final String MASK_SUFFIX_DIGITS_CONFIG = "mask.suffix.digits";
 
     private static final String WILDCARD = "*";
 
@@ -108,7 +109,8 @@ public class PANTransformationSMT<R extends ConnectRecord<R>> implements Transfo
     private String eventTypeHeader;
     private String versionHeader;
     private char maskCharacter;
-    private int maskVisibleDigits;
+    private int maskPrefixDigits;
+    private int maskSuffixDigits;
 
     private JWEHandler jweHandler;
     private KeyStorageProvider keyStorageProvider;
@@ -138,8 +140,10 @@ public class PANTransformationSMT<R extends ConnectRecord<R>> implements Transfo
                     ConfigDef.Importance.MEDIUM, "Header name for version")
             .define(MASK_CHARACTER_CONFIG, ConfigDef.Type.STRING, "*",
                     ConfigDef.Importance.LOW, "Character used for masking")
-            .define(MASK_VISIBLE_DIGITS_CONFIG, ConfigDef.Type.INT, 4,
-                    ConfigDef.Importance.LOW, "Number of visible digits at the end when masking");
+            .define(MASK_PREFIX_DIGITS_CONFIG, ConfigDef.Type.INT, 6,
+                    ConfigDef.Importance.LOW, "Number of visible digits at the beginning (BIN)")
+            .define(MASK_SUFFIX_DIGITS_CONFIG, ConfigDef.Type.INT, 4,
+                    ConfigDef.Importance.LOW, "Number of visible digits at the end");
     }
 
     @Override
@@ -152,7 +156,8 @@ public class PANTransformationSMT<R extends ConnectRecord<R>> implements Transfo
         this.eventTypeHeader = config.getString(EVENT_TYPE_HEADER_CONFIG);
         this.versionHeader = config.getString(VERSION_HEADER_CONFIG);
         this.maskCharacter = config.getString(MASK_CHARACTER_CONFIG).charAt(0);
-        this.maskVisibleDigits = config.getInt(MASK_VISIBLE_DIGITS_CONFIG);
+        this.maskPrefixDigits = config.getInt(MASK_PREFIX_DIGITS_CONFIG);
+        this.maskSuffixDigits = config.getInt(MASK_SUFFIX_DIGITS_CONFIG);
 
         // Parse default strategy
         String defaultStrategyStr = config.getString(DEFAULT_STRATEGY_CONFIG);
@@ -422,22 +427,34 @@ public class PANTransformationSMT<R extends ConnectRecord<R>> implements Transfo
         }
 
         // If the value is a JWE token, we can't mask the actual PAN without decrypting
-        // In this case, we'll just return a placeholder
+        // In this case, we'll just return a placeholder (6 prefix + 6 masked + 4 suffix)
         if (value.contains(".") && value.split("\\.").length == 5) {
             // Looks like a JWE token (5 parts separated by dots)
-            return String.valueOf(maskCharacter).repeat(12) + "****";
+            return "******" + String.valueOf(maskCharacter).repeat(6) + "****";
         }
 
         int len = value.length();
-        if (len <= maskVisibleDigits) {
+        int totalVisible = maskPrefixDigits + maskSuffixDigits;
+
+        // If value is too short to mask, return as-is
+        if (len <= totalVisible) {
             return value;
         }
 
+        int maskedLength = len - totalVisible;
         StringBuilder masked = new StringBuilder();
-        for (int i = 0; i < len - maskVisibleDigits; i++) {
+
+        // First 6 characters (BIN)
+        masked.append(value.substring(0, maskPrefixDigits));
+
+        // Masked middle section
+        for (int i = 0; i < maskedLength; i++) {
             masked.append(maskCharacter);
         }
-        masked.append(value.substring(len - maskVisibleDigits));
+
+        // Last 4 characters
+        masked.append(value.substring(len - maskSuffixDigits));
+
         return masked.toString();
     }
 
