@@ -1,0 +1,15 @@
+FROM maven:3.9-eclipse-temurin-11 AS partitioner-builder
+
+# Clone and build the field-and-time-partitioner
+WORKDIR /build
+RUN git clone --depth 1 https://github.com/canelmas/kafka-connect-field-and-time-partitioner.git && \
+    cd kafka-connect-field-and-time-partitioner && \
+    mvn clean package -DskipTests -q
+
+FROM confluentinc/cp-kafka-connect:7.6.0
+
+# Install the S3 connector from Confluent Hub
+RUN confluent-hub install --no-prompt confluentinc/kafka-connect-s3:10.5.13
+
+# Copy the field-and-time-partitioner JAR to the S3 connector lib
+COPY --from=partitioner-builder /build/kafka-connect-field-and-time-partitioner/target/*.jar /usr/share/confluent-hub-components/confluentinc-kafka-connect-s3/lib/

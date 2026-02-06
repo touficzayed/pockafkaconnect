@@ -29,6 +29,8 @@ import java.util.Arrays;
  * - optional.headers: Comma-separated list of optional headers
  * - target.field: Field name in payload to store headers (default: "headers")
  * - fail.on.missing.mandatory: Fail if mandatory header is missing (default: true)
+ * - wrap.payload: If true, wraps original message in {headers:{...}, payload:{...}} format (default: false)
+ * - payload.field: Field name for the wrapped payload (default: "payload")
  */
 public class HeadersToPayloadTransform<R extends ConnectRecord<R>> implements Transformation<R> {
 
@@ -36,16 +38,22 @@ public class HeadersToPayloadTransform<R extends ConnectRecord<R>> implements Tr
     private static final String OPTIONAL_HEADERS_CONFIG = "optional.headers";
     private static final String TARGET_FIELD_CONFIG = "target.field";
     private static final String FAIL_ON_MISSING_CONFIG = "fail.on.missing.mandatory";
+    private static final String WRAP_PAYLOAD_CONFIG = "wrap.payload";
+    private static final String PAYLOAD_FIELD_CONFIG = "payload.field";
 
     private static final String MANDATORY_HEADERS_DOC = "Comma-separated list of mandatory header names";
     private static final String OPTIONAL_HEADERS_DOC = "Comma-separated list of optional header names";
     private static final String TARGET_FIELD_DOC = "Name of the field to store headers in the payload";
     private static final String FAIL_ON_MISSING_DOC = "Whether to fail if a mandatory header is missing";
+    private static final String WRAP_PAYLOAD_DOC = "If true, wraps original message in {headers:{...}, payload:{...}} format";
+    private static final String PAYLOAD_FIELD_DOC = "Field name for the wrapped payload when wrap.payload is true";
 
     private Set<String> mandatoryHeaders;
     private Set<String> optionalHeaders;
     private String targetField;
     private boolean failOnMissing;
+    private boolean wrapPayload;
+    private String payloadField;
 
     @Override
     public ConfigDef config() {
@@ -69,7 +77,17 @@ public class HeadersToPayloadTransform<R extends ConnectRecord<R>> implements Tr
                     ConfigDef.Type.BOOLEAN,
                     true,
                     ConfigDef.Importance.MEDIUM,
-                    FAIL_ON_MISSING_DOC);
+                    FAIL_ON_MISSING_DOC)
+            .define(WRAP_PAYLOAD_CONFIG,
+                    ConfigDef.Type.BOOLEAN,
+                    false,
+                    ConfigDef.Importance.MEDIUM,
+                    WRAP_PAYLOAD_DOC)
+            .define(PAYLOAD_FIELD_CONFIG,
+                    ConfigDef.Type.STRING,
+                    "payload",
+                    ConfigDef.Importance.LOW,
+                    PAYLOAD_FIELD_DOC);
     }
 
     @Override
@@ -83,6 +101,8 @@ public class HeadersToPayloadTransform<R extends ConnectRecord<R>> implements Tr
         this.optionalHeaders = parseHeaderNames(optionalHeadersStr);
         this.targetField = config.getString(TARGET_FIELD_CONFIG);
         this.failOnMissing = config.getBoolean(FAIL_ON_MISSING_CONFIG);
+        this.wrapPayload = config.getBoolean(WRAP_PAYLOAD_CONFIG);
+        this.payloadField = config.getString(PAYLOAD_FIELD_CONFIG);
     }
 
     @Override
@@ -126,8 +146,18 @@ public class HeadersToPayloadTransform<R extends ConnectRecord<R>> implements Tr
     @SuppressWarnings("unchecked")
     private R applySchemaless(R record, Map<String, String> headers) {
         final Map<String, Object> value = (Map<String, Object>) record.value();
-        final Map<String, Object> updatedValue = new HashMap<>(value);
-        updatedValue.put(targetField, headers);
+        final Map<String, Object> updatedValue;
+
+        if (wrapPayload) {
+            // Wrap format: {"headers": {...}, "payload": {...}}
+            updatedValue = new HashMap<>();
+            updatedValue.put(targetField, headers);
+            updatedValue.put(payloadField, value);
+        } else {
+            // Inline format: original payload with headers field added
+            updatedValue = new HashMap<>(value);
+            updatedValue.put(targetField, headers);
+        }
 
         return record.newRecord(
             record.topic(),
@@ -143,28 +173,41 @@ public class HeadersToPayloadTransform<R extends ConnectRecord<R>> implements Tr
     private R applyWithSchema(R record, Map<String, String> headers) {
         final Struct value = (Struct) record.value();
         final Schema schema = record.valueSchema();
+        final Schema headersMapSchema = SchemaBuilder.map(Schema.STRING_SCHEMA, Schema.STRING_SCHEMA).build();
 
-        // Build new schema with headers field
         final SchemaBuilder builder = SchemaBuilder.struct();
-        for (org.apache.kafka.connect.data.Field field : schema.fields()) {
-            builder.field(field.name(), field.schema());
-        }
-        builder.field(targetField, SchemaBuilder.map(Schema.STRING_SCHEMA, Schema.STRING_SCHEMA).build());
-        final Schema newSchema = builder.build();
+        final Struct newValue;
 
-        // Build new struct with headers
-        final Struct newValue = new Struct(newSchema);
-        for (org.apache.kafka.connect.data.Field field : schema.fields()) {
-            newValue.put(field.name(), value.get(field));
+        if (wrapPayload) {
+            // Wrap format: {"headers": {...}, "payload": {...}}
+            builder.field(targetField, headersMapSchema);
+            builder.field(payloadField, schema);
+            final Schema newSchema = builder.build();
+
+            newValue = new Struct(newSchema);
+            newValue.put(targetField, headers);
+            newValue.put(payloadField, value);
+        } else {
+            // Inline format: original payload with headers field added
+            for (org.apache.kafka.connect.data.Field field : schema.fields()) {
+                builder.field(field.name(), field.schema());
+            }
+            builder.field(targetField, headersMapSchema);
+            final Schema newSchema = builder.build();
+
+            newValue = new Struct(newSchema);
+            for (org.apache.kafka.connect.data.Field field : schema.fields()) {
+                newValue.put(field.name(), value.get(field));
+            }
+            newValue.put(targetField, headers);
         }
-        newValue.put(targetField, headers);
 
         return record.newRecord(
             record.topic(),
             record.kafkaPartition(),
             record.keySchema(),
             record.key(),
-            newSchema,
+            newValue.schema(),
             newValue,
             record.timestamp()
         );

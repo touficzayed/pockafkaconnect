@@ -59,7 +59,9 @@ services:
   # KAFKA CONNECT
   # ====================================================================
   kafka-connect:
-    image: confluentinc/cp-kafka-connect:7.6.0
+    build:
+      context: .
+      dockerfile: Dockerfile.kafka-connect
     hostname: kafka-connect
     container_name: banking-kafka-connect
     depends_on:
@@ -101,8 +103,6 @@ services:
       - bash
       - -c
       - |
-        echo "Installing Confluent S3 Sink Connector..."
-        confluent-hub install --no-prompt confluentinc/kafka-connect-s3:10.5.0
         echo "Starting Kafka Connect..."
         /etc/confluent/docker/run
     healthcheck:

@@ -256,4 +256,140 @@ class HeadersToPayloadTransformTest {
         assertTrue(transformedValue.containsKey("metadata"));
         assertFalse(transformedValue.containsKey("headers"));
     }
+
+    @Test
+    void testSchemalessWithWrapPayload() {
+        // Configure transform with wrap.payload=true
+        Map<String, Object> config = new HashMap<>();
+        config.put("mandatory.headers", "X-Institution-Id,X-Event-Type");
+        config.put("optional.headers", "X-Version");
+        config.put("target.field", "headers");
+        config.put("wrap.payload", true);
+        config.put("payload.field", "payload");
+        transform.configure(config);
+
+        // Create record with headers
+        Map<String, Object> value = new HashMap<>();
+        value.put("transactionId", "txn-123");
+        value.put("amount", 100.0);
+
+        ConnectHeaders headers = new ConnectHeaders();
+        headers.addString("X-Institution-Id", "BNK001");
+        headers.addString("X-Event-Type", "PAYMENT");
+        headers.addString("X-Version", "1.0");
+
+        SinkRecord record = new SinkRecord(
+                "test-topic", 0, null, null,
+                null, value, 0, null, null, headers
+        );
+
+        // Apply transformation
+        SinkRecord transformedRecord = transform.apply(record);
+
+        // Verify wrapped format: {"headers": {...}, "payload": {...}}
+        assertNotNull(transformedRecord);
+        Map<String, Object> transformedValue = (Map<String, Object>) transformedRecord.value();
+
+        // Should have only 2 fields: headers and payload
+        assertEquals(2, transformedValue.size());
+        assertTrue(transformedValue.containsKey("headers"));
+        assertTrue(transformedValue.containsKey("payload"));
+
+        // Verify headers
+        Map<String, String> extractedHeaders = (Map<String, String>) transformedValue.get("headers");
+        assertEquals("BNK001", extractedHeaders.get("X-Institution-Id"));
+        assertEquals("PAYMENT", extractedHeaders.get("X-Event-Type"));
+        assertEquals("1.0", extractedHeaders.get("X-Version"));
+
+        // Verify payload contains original fields
+        Map<String, Object> payload = (Map<String, Object>) transformedValue.get("payload");
+        assertEquals("txn-123", payload.get("transactionId"));
+        assertEquals(100.0, payload.get("amount"));
+    }
+
+    @Test
+    void testSchemalessWithWrapPayloadCustomFieldNames() {
+        // Configure transform with custom field names
+        Map<String, Object> config = new HashMap<>();
+        config.put("mandatory.headers", "X-Institution-Id");
+        config.put("target.field", "metadata");
+        config.put("wrap.payload", true);
+        config.put("payload.field", "data");
+        transform.configure(config);
+
+        // Create record
+        Map<String, Object> value = new HashMap<>();
+        value.put("transactionId", "txn-456");
+
+        ConnectHeaders headers = new ConnectHeaders();
+        headers.addString("X-Institution-Id", "BNK002");
+
+        SinkRecord record = new SinkRecord(
+                "test-topic", 0, null, null,
+                null, value, 0, null, null, headers
+        );
+
+        // Apply transformation
+        SinkRecord transformedRecord = transform.apply(record);
+
+        // Verify custom field names: {"metadata": {...}, "data": {...}}
+        Map<String, Object> transformedValue = (Map<String, Object>) transformedRecord.value();
+        assertTrue(transformedValue.containsKey("metadata"));
+        assertTrue(transformedValue.containsKey("data"));
+        assertFalse(transformedValue.containsKey("headers"));
+        assertFalse(transformedValue.containsKey("payload"));
+
+        Map<String, String> extractedHeaders = (Map<String, String>) transformedValue.get("metadata");
+        assertEquals("BNK002", extractedHeaders.get("X-Institution-Id"));
+
+        Map<String, Object> payload = (Map<String, Object>) transformedValue.get("data");
+        assertEquals("txn-456", payload.get("transactionId"));
+    }
+
+    @Test
+    void testWithSchemaAndWrapPayload() {
+        // Configure transform with wrap.payload=true
+        Map<String, Object> config = new HashMap<>();
+        config.put("mandatory.headers", "X-Institution-Id");
+        config.put("wrap.payload", true);
+        transform.configure(config);
+
+        // Create schema
+        Schema valueSchema = SchemaBuilder.struct()
+                .field("transactionId", Schema.STRING_SCHEMA)
+                .field("amount", Schema.FLOAT64_SCHEMA)
+                .build();
+
+        // Create value
+        Struct value = new Struct(valueSchema);
+        value.put("transactionId", "txn-789");
+        value.put("amount", 250.0);
+
+        // Create headers
+        ConnectHeaders headers = new ConnectHeaders();
+        headers.addString("X-Institution-Id", "BNK003");
+
+        SinkRecord record = new SinkRecord(
+                "test-topic", 0, null, null,
+                valueSchema, value, 0, null, null, headers
+        );
+
+        // Apply transformation
+        SinkRecord transformedRecord = transform.apply(record);
+
+        // Verify
+        assertNotNull(transformedRecord);
+        assertNotNull(transformedRecord.valueSchema());
+
+        Struct transformedValue = (Struct) transformedRecord.value();
+
+        // Verify headers field
+        Map<String, String> extractedHeaders = (Map<String, String>) transformedValue.get("headers");
+        assertEquals("BNK003", extractedHeaders.get("X-Institution-Id"));
+
+        // Verify payload field contains original struct
+        Struct payload = (Struct) transformedValue.get("payload");
+        assertEquals("txn-789", payload.get("transactionId"));
+        assertEquals(250.0, payload.get("amount"));
+    }
 }
