@@ -262,7 +262,7 @@ class HeadersToPayloadTransformTest {
         // Configure transform with wrap.payload=true
         Map<String, Object> config = new HashMap<>();
         config.put("mandatory.headers", "X-Institution-Id,X-Event-Type");
-        config.put("optional.headers", "X-Version");
+        config.put("optional.headers", "X-Event-Version");
         config.put("target.field", "headers");
         config.put("wrap.payload", true);
         config.put("payload.field", "payload");
@@ -276,7 +276,7 @@ class HeadersToPayloadTransformTest {
         ConnectHeaders headers = new ConnectHeaders();
         headers.addString("X-Institution-Id", "BNK001");
         headers.addString("X-Event-Type", "PAYMENT");
-        headers.addString("X-Version", "1.0");
+        headers.addString("X-Event-Version", "1.0");
 
         SinkRecord record = new SinkRecord(
                 "test-topic", 0, null, null,
@@ -299,7 +299,7 @@ class HeadersToPayloadTransformTest {
         Map<String, String> extractedHeaders = (Map<String, String>) transformedValue.get("headers");
         assertEquals("BNK001", extractedHeaders.get("X-Institution-Id"));
         assertEquals("PAYMENT", extractedHeaders.get("X-Event-Type"));
-        assertEquals("1.0", extractedHeaders.get("X-Version"));
+        assertEquals("1.0", extractedHeaders.get("X-Event-Version"));
 
         // Verify payload contains original fields
         Map<String, Object> payload = (Map<String, Object>) transformedValue.get("payload");

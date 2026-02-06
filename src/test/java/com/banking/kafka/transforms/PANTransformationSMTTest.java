@@ -187,7 +187,7 @@ class PANTransformationSMTTest {
         Headers headers1 = new ConnectHeaders();
         headers1.addString("X-Institution-Id", "BNK001");
         headers1.addString("X-Event-Type", "PAYMENT");
-        headers1.addString("X-Version", "1.0");
+        headers1.addString("X-Event-Version", "1.0");
 
         Map<String, Object> value1 = new HashMap<>();
         value1.put("pan", "4532015112830366");

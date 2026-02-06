@@ -169,7 +169,7 @@ public class MultiBankPaymentProducer {
             Headers headers = new RecordHeaders();
             headers.add("X-Institution-Id", bankCode.getBytes(StandardCharsets.UTF_8));
             headers.add("X-Event-Type", "PAYMENT".getBytes(StandardCharsets.UTF_8));
-            headers.add("X-Version", "1.0".getBytes(StandardCharsets.UTF_8));
+            headers.add("X-Event-Version", "1.0".getBytes(StandardCharsets.UTF_8));
 
             // Create record
             ProducerRecord<String, String> record = new ProducerRecord<>(

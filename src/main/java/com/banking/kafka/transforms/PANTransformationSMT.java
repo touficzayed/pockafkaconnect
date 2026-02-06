@@ -31,7 +31,7 @@ import java.util.Map;
  * Supports rule-based transformation strategies based on headers:
  * - Institution ID (X-Institution-Id)
  * - Event Type (X-Event-Type)
- * - Version (X-Version)
+ * - Version (X-Event-Version)
  *
  * Strategies:
  * - REMOVE: Remove the encrypted PAN field completely
@@ -136,7 +136,7 @@ public class PANTransformationSMT<R extends ConnectRecord<R>> implements Transfo
                     ConfigDef.Importance.MEDIUM, "Header name for institution ID")
             .define(EVENT_TYPE_HEADER_CONFIG, ConfigDef.Type.STRING, "X-Event-Type",
                     ConfigDef.Importance.MEDIUM, "Header name for event type")
-            .define(VERSION_HEADER_CONFIG, ConfigDef.Type.STRING, "X-Version",
+            .define(VERSION_HEADER_CONFIG, ConfigDef.Type.STRING, "X-Event-Version",
                     ConfigDef.Importance.MEDIUM, "Header name for version")
             .define(MASK_CHARACTER_CONFIG, ConfigDef.Type.STRING, "*",
                     ConfigDef.Importance.LOW, "Character used for masking")

@@ -75,7 +75,7 @@ public class BankingPaymentProducer {
             Headers headers = new RecordHeaders();
             headers.add("X-Institution-Id", institutionId.getBytes(StandardCharsets.UTF_8));
             headers.add("X-Event-Type", "PAYMENT".getBytes(StandardCharsets.UTF_8));
-            headers.add("X-Version", "1.0".getBytes(StandardCharsets.UTF_8));
+            headers.add("X-Event-Version", "1.0".getBytes(StandardCharsets.UTF_8));
             headers.add("X-User-Id", ("user-" + new Random().nextInt(10000)).getBytes(StandardCharsets.UTF_8));
 
             // Create record
