@@ -34,8 +34,8 @@
     "transforms.transformPAN.rules": "BNK001:PAYMENT:*:MASK,BNK002:*:*:DECRYPT",
 
     "transforms.extractHeaders.type": "com.banking.kafka.transforms.HeadersToPayloadTransform",
-    "transforms.extractHeaders.mandatory.headers": "X-Institution-Id,X-Event-Type,X-Event-Version",
-    "transforms.extractHeaders.optional.headers": "X-User-Id",
+    "transforms.extractHeaders.mandatory.headers": "X-Institution-Id,X-Event-Type,X-Event-Version,X-Event-Id",
+    "transforms.extractHeaders.optional.headers": "X-User-Id,X-UserContext-Id,X-Original-Request-Id,X-Original-Correlation-Id,Original-Idempotency-Key",
     "transforms.extractHeaders.target.field": "headers",
     "transforms.extractHeaders.fail.on.missing.mandatory": "false",
     "transforms.extractHeaders.wrap.payload": "true",
