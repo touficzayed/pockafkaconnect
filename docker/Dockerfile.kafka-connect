@@ -16,8 +16,8 @@ RUN git clone --depth 1 https://github.com/canelmas/kafka-connect-field-and-time
 
 FROM confluentinc/cp-kafka-connect:8.1.0
 
-# Install the S3 connector from Confluent Hub (latest version)
-RUN confluent-hub install --no-prompt confluentinc/kafka-connect-s3:latest
+# Install the S3 connector from Confluent Hub
+RUN confluent-hub install --no-prompt confluentinc/kafka-connect-s3:12.0.1
 
 # Copy the field-and-time-partitioner JAR to the S3 connector lib
 COPY --from=partitioner-builder /build/kafka-connect-field-and-time-partitioner/target/*.jar /usr/share/confluent-hub-components/confluentinc-kafka-connect-s3/lib/
