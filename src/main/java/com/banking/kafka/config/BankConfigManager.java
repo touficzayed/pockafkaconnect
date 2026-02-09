@@ -153,6 +153,9 @@ public class BankConfigManager {
             if (pgpNode.has("armor")) {
                 pgpConfig.setArmor(pgpNode.get("armor").asBoolean());
             }
+            if (pgpNode.has("rules")) {
+                pgpConfig.setRules(pgpNode.get("rules").asText());
+            }
             if (pgpNode.has("reason")) {
                 pgpConfig.setReason(pgpNode.get("reason").asText());
             }
@@ -245,6 +248,7 @@ public class BankConfigManager {
         private boolean enabled;
         private String publicKeyPath;
         private boolean armor;
+        private String rules;
         private String reason;
 
         public boolean isEnabled() { return enabled; }
@@ -255,6 +259,9 @@ public class BankConfigManager {
 
         public boolean isArmor() { return armor; }
         public void setArmor(boolean armor) { this.armor = armor; }
+
+        public String getRules() { return rules; }
+        public void setRules(String rules) { this.rules = rules; }
 
         public String getReason() { return reason; }
         public void setReason(String reason) { this.reason = reason; }

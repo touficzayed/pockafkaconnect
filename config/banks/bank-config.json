@@ -11,6 +11,7 @@
         "enabled": true,
         "public_key_path": "/keys/pgp/bnk001-public.asc",
         "armor": true,
+        "rules": "PAYMENT:*:ENCRYPT,REFUND:*:ENCRYPT,*:*:ENCRYPT",
         "reason": "Chiffrement PGP obligatoire pour tous les fichiers"
       },
       "s3_config": {
@@ -29,6 +30,7 @@
       },
       "pgp_encryption": {
         "enabled": false,
+        "rules": "*:*:SKIP",
         "reason": "Pas de chiffrement PGP - chiffrement S3 suffisant"
       },
       "s3_config": {
@@ -52,6 +54,7 @@
         "enabled": true,
         "public_key_path": "/keys/pgp/bnk003-public.asc",
         "armor": false,
+        "rules": "PAYMENT:*:ENCRYPT,REFUND:*:ENCRYPT,*:*:ENCRYPT",
         "reason": "Chiffrement PGP binaire pour optimiser l'espace"
       },
       "s3_config": {
@@ -69,6 +72,7 @@
         "enabled": true,
         "public_key_path": "/keys/pgp/bnk004-public.asc",
         "armor": true,
+        "rules": "PAYMENT:*:ENCRYPT,REFUND:*:ENCRYPT,*:*:ENCRYPT",
         "reason": "Chiffrement PGP pour conformité réglementaire"
       },
       "s3_config": {
@@ -90,6 +94,7 @@
         "enabled": true,
         "public_key_path": "/keys/pgp/bnk005-public.asc",
         "armor": true,
+        "rules": "PAYMENT:*:ENCRYPT,REFUND:*:ENCRYPT,*:*:ENCRYPT",
         "reason": "Double chiffrement: PGP + S3 pour sécurité maximale"
       },
       "s3_config": {
@@ -107,6 +112,7 @@
     },
     "pgp_encryption": {
       "enabled": false,
+      "rules": "*:*:SKIP",
       "reason": "Pas de chiffrement PGP par défaut"
     },
     "s3_config": {
