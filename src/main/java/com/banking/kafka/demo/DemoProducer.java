@@ -7,6 +7,7 @@ import org.apache.kafka.common.header.internals.RecordHeaders;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -53,34 +54,56 @@ public class DemoProducer {
     public static void main(String[] args) {
         String bootstrapServer = System.getenv().getOrDefault("KAFKA_BOOTSTRAP_SERVER", "localhost:9092");
         String topic = System.getenv().getOrDefault("KAFKA_TOPIC", "payments-in");
-        int delayMs = Integer.parseInt(System.getenv().getOrDefault("MESSAGE_DELAY_MS", "500"));
+        int messagesPerSecond = Integer.parseInt(System.getenv().getOrDefault("MESSAGES_PER_SECOND", "1000"));
 
         printBanner();
         System.out.println("Bootstrap: " + BLUE + bootstrapServer + RESET);
         System.out.println("Topic: " + BLUE + topic + RESET);
-        System.out.println("Delay: " + BLUE + delayMs + "ms" + RESET);
+        System.out.println("Rate: " + BLUE + messagesPerSecond + " msg/sec" + RESET);
         System.out.println(YELLOW + "Press Ctrl+C to stop" + RESET);
         System.out.println();
 
         // Handle shutdown gracefully
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             running.set(false);
+            try {
+                Thread.sleep(2000); // Allow flush
+            } catch (InterruptedException ignored) {}
             System.out.println("\n" + GREEN + "Stopped after " + messageCount.get() + " messages" + RESET);
         }));
 
-        // Producer configuration
+        // Producer configuration with batching for high throughput
         Properties props = new Properties();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServer);
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
         props.put(ProducerConfig.ACKS_CONFIG, "1");
+        props.put(ProducerConfig.BATCH_SIZE_CONFIG, 32 * 1024); // 32KB batches
+        props.put(ProducerConfig.LINGER_MS_CONFIG, 10); // Wait up to 10ms to batch
+        props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "snappy");
 
         try (KafkaProducer<String, String> producer = new KafkaProducer<>(props)) {
+            long messagesPerBatch = Math.max(1, messagesPerSecond / 100); // Send in bursts
+            long batchIntervalMs = 1000 / 100; // 100 bursts per second
+
             while (running.get()) {
-                sendMessage(producer, topic);
-                messageCount.incrementAndGet();
-                Thread.sleep(delayMs);
+                long batchStart = System.currentTimeMillis();
+
+                // Send burst of messages
+                for (int i = 0; i < messagesPerBatch && running.get(); i++) {
+                    sendMessage(producer, topic);
+                    messageCount.incrementAndGet();
+                }
+
+                // Regulate rate
+                long elapsed = System.currentTimeMillis() - batchStart;
+                if (elapsed < batchIntervalMs) {
+                    Thread.sleep(batchIntervalMs - elapsed);
+                }
             }
+
+            // Final flush
+            producer.flush();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {

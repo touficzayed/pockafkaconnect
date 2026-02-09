@@ -29,9 +29,11 @@
         "reason": "BNK002 déchiffre le PAN pour traitement interne (système legacy)"
       },
       "pgp_encryption": {
-        "enabled": false,
-        "rules": "*:*:SKIP",
-        "reason": "Pas de chiffrement PGP - chiffrement S3 suffisant"
+        "enabled": true,
+        "public_key_path": "/keys/pgp/bnk002-public.asc",
+        "armor": true,
+        "rules": "PAYMENT:*:ENCRYPT,REFUND:*:ENCRYPT,*:*:ENCRYPT",
+        "reason": "PAN en clair mais fichier chiffré en PGP pour sécurité double"
       },
       "s3_config": {
         "bucket": "banking-payments",
@@ -100,6 +102,65 @@
       "s3_config": {
         "bucket": "banking-payments",
         "path_prefix": "bnk005"
+      }
+    },
+    "HSBC": {
+      "name": "HSBC Bank",
+      "pan_strategy": "MASK",
+      "pan_config": {
+        "source_field": "encryptedPrimaryAccountNumber",
+        "reason": "HSBC masque les 6 premiers et 4 derniers chiffres"
+      },
+      "pgp_encryption": {
+        "enabled": true,
+        "public_key_path": "/keys/pgp/hsbc-public.asc",
+        "armor": true,
+        "rules": "PAYMENT:*:ENCRYPT,*:*:ENCRYPT",
+        "reason": "Chiffrement PGP pour les paiements"
+      },
+      "s3_config": {
+        "bucket": "banking-payments",
+        "path_prefix": "hsbc"
+      }
+    },
+    "BNPP": {
+      "name": "BNP Paribas",
+      "pan_strategy": "DECRYPT",
+      "pan_config": {
+        "source_field": "encryptedPrimaryAccountNumber",
+        "target_field": "primaryAccountNumber",
+        "private_key_path": "/keys/bank-private-key.pem",
+        "reason": "BNPP déchiffre le PAN pour traitement"
+      },
+      "pgp_encryption": {
+        "enabled": true,
+        "public_key_path": "/keys/pgp/bnpp-public.asc",
+        "armor": true,
+        "rules": "PAYMENT:*:ENCRYPT,REFUND:*:ENCRYPT,TRANSFER:*:ENCRYPT,*:*:SKIP",
+        "reason": "PAN en clair + PGP pour certains types d'événement"
+      },
+      "s3_config": {
+        "bucket": "banking-payments",
+        "path_prefix": "bnpp"
+      }
+    },
+    "SOCGEN": {
+      "name": "Société Générale",
+      "pan_strategy": "REMOVE",
+      "pan_config": {
+        "source_field": "encryptedPrimaryAccountNumber",
+        "reason": "SOCGEN supprime complètement le PAN"
+      },
+      "pgp_encryption": {
+        "enabled": true,
+        "public_key_path": "/keys/pgp/socgen-public.asc",
+        "armor": true,
+        "rules": "*:*:ENCRYPT",
+        "reason": "PAN supprimé + chiffrement PGP pour tous les messages"
+      },
+      "s3_config": {
+        "bucket": "banking-payments",
+        "path_prefix": "socgen"
       }
     }
   },
