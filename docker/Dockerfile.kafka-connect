@@ -22,5 +22,8 @@ RUN confluent-hub install --no-prompt confluentinc/kafka-connect-s3:10.5.13
 # Copy the field-and-time-partitioner JAR to the S3 connector lib
 COPY --from=partitioner-builder /build/kafka-connect-field-and-time-partitioner/target/*.jar /usr/share/confluent-hub-components/confluentinc-kafka-connect-s3/lib/
 
-# Copy the banking Kafka transforms JAR to plugins
+# Copy all dependencies to Kafka Connect classpath
+COPY --from=builder /build/target/dependency/*.jar /usr/share/java/
+
+# Copy the connector JAR (without dependencies - they're now in classpath)
 COPY --from=builder /build/target/kafka-connect-banking-poc-*.jar /usr/share/java/

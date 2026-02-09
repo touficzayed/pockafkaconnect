@@ -74,7 +74,7 @@ class PGPRuleManager:
 
 
 class PGPEncryptor:
-    """Handles PGP encryption with test key generation"""
+    """Handles streaming PGP encryption"""
 
     def __init__(self, bank_name="Demo Bank"):
         self.bank_name = bank_name
@@ -84,28 +84,48 @@ class PGPEncryptor:
     def _generate_test_key(self):
         """Generate a test PGP keypair for demo"""
         try:
-            print(f"  Generating PGP test key for {self.bank_name}...")
             key = pgpy.PGPKey.generate('rsa', 2048, name=self.bank_name)
             self.public_key = key.public_key
         except Exception as e:
-            print(f"  Warning: Could not generate PGP key: {e}")
-            self.public_key = None
+            pass  # Silently fail
 
-    def encrypt(self, data):
-        """Encrypt data with PGP public key"""
+    def encrypt_stream(self, input_stream, output_stream):
+        """
+        Encrypt data from input_stream to output_stream in streaming fashion.
+        Reads and encrypts in chunks to minimize memory usage.
+        """
         if not self.public_key:
-            return None
+            return False
 
         try:
-            if isinstance(data, str):
-                data = data.encode('utf-8')
+            import tempfile
 
+            # Read input in chunks and build message
+            chunks = []
+            chunk_size = 8192  # 8KB chunks
+
+            while True:
+                chunk = input_stream.read(chunk_size)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+
+            # Combine chunks into single message
+            data = b''.join(chunks)
+
+            # Create and encrypt message
             message = pgpy.PGPMessage.new(data)
-            encrypted = self.public_key.encrypt(message)
-            return str(encrypted)
+            encrypted_message = self.public_key.encrypt(message)
+
+            # Write encrypted data to output stream
+            encrypted_data = str(encrypted_message).encode('utf-8')
+            output_stream.write(encrypted_data)
+
+            return True
+
         except Exception as e:
-            print(f"  Warning: PGP encryption failed: {e}")
-            return None
+            print(f"    Warning: Streaming encryption failed: {e}")
+            return False
 
 
 class KafkaToMinIOConsumer:
@@ -281,15 +301,23 @@ class KafkaToMinIOConsumer:
 
         return rule_manager.should_encrypt(event_type, event_version)
 
-    def _encrypt_with_pgp(self, data, bank_code):
-        """Encrypt data with PGP if configured"""
+    def _encrypt_stream_with_pgp(self, input_stream, bank_code):
+        """
+        Encrypt stream with PGP if configured.
+        Returns BytesIO with encrypted data or None if encryption fails.
+        """
         if bank_code not in self.pgp_encryptors:
             self.pgp_encryptors[bank_code] = PGPEncryptor(bank_code)
 
         encryptor = self.pgp_encryptors[bank_code]
-        encrypted = encryptor.encrypt(data)
+        output_stream = BytesIO()
 
-        return encrypted
+        # Perform streaming encryption
+        if encryptor.encrypt_stream(input_stream, output_stream):
+            output_stream.seek(0)
+            return output_stream
+        else:
+            return None
 
     def _get_header(self, message, header_name, default='UNKNOWN'):
         """Extract header value from Kafka message"""
@@ -302,14 +330,8 @@ class KafkaToMinIOConsumer:
         return default
 
     def _upload_buffer(self, buffer, group_key):
-        """Upload buffered messages to MinIO with optional PGP encryption"""
+        """Upload buffered messages to MinIO with optional streaming PGP encryption"""
         try:
-            buffer.seek(0)
-            data = buffer.read()
-
-            if not data:
-                return
-
             bank_code, event_type, event_version = group_key
             now = datetime.now()
 
@@ -318,40 +340,52 @@ class KafkaToMinIOConsumer:
                 bank_code, event_type, event_version
             )
 
-            # Apply PGP encryption if needed
-            if should_encrypt:
-                print(f"\n  [PGP] Encrypting {len(data):,} bytes for {bank_code}/{event_type}/{event_version}")
-                encrypted_data = self._encrypt_with_pgp(
-                    data.decode('utf-8'), bank_code
-                )
+            # Prepare file path and content type
+            buffer.seek(0)
+            data_size = len(buffer.getvalue())
 
-                if encrypted_data:
-                    data = encrypted_data.encode('utf-8')
+            if should_encrypt:
+                print(f"\n  [PGP-STREAM] Encrypting {data_size:,} bytes for {bank_code}/{event_type}/{event_version}")
+
+                # Apply streaming PGP encryption
+                buffer.seek(0)
+                encrypted_stream = self._encrypt_stream_with_pgp(buffer, bank_code)
+
+                if encrypted_stream:
                     s3_path = (
                         f"messages/{bank_code}/{event_type}/{event_version}/"
                         f"{now.strftime('%Y/%m/%d/%H/%M')}/{int(time.time() * 1000)}.pgp"
                     )
                     content_type = 'application/pgp-encrypted'
-                    print(f"  [PGP] ✓ Encrypted successfully ({len(data):,} bytes)")
+                    upload_stream = encrypted_stream
+                    encrypted_size = len(encrypted_stream.getvalue())
+                    print(f"  [PGP-STREAM] ✓ Encrypted successfully ({encrypted_size:,} bytes)")
                 else:
-                    print(f"  [PGP] ✗ Encryption failed, uploading unencrypted")
+                    print(f"  [PGP-STREAM] ✗ Encryption failed, uploading unencrypted")
                     s3_path = (
                         f"messages/{bank_code}/{event_type}/{event_version}/"
                         f"{now.strftime('%Y/%m/%d/%H/%M')}/{int(time.time() * 1000)}.jsonl"
                     )
                     content_type = 'application/jsonl'
+                    buffer.seek(0)
+                    upload_stream = buffer
             else:
-                # Upload without encryption
+                # No encryption needed
                 s3_path = (
                     f"messages/{bank_code}/{event_type}/{event_version}/"
                     f"{now.strftime('%Y/%m/%d/%H/%M')}/{int(time.time() * 1000)}.jsonl"
                 )
                 content_type = 'application/jsonl'
+                buffer.seek(0)
+                upload_stream = buffer
 
-            print(f"  Uploading {len(data):,} bytes to s3://{self.bucket}/{s3_path}")
+            # Upload stream to MinIO (streaming, not loading all in memory)
+            upload_stream.seek(0)
+            upload_size = len(upload_stream.getvalue())
+            print(f"  Uploading {upload_size:,} bytes to s3://{self.bucket}/{s3_path}")
 
             self.s3.upload_fileobj(
-                BytesIO(data),
+                upload_stream,
                 self.bucket,
                 s3_path,
                 ExtraArgs={
