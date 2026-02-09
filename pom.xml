@@ -19,15 +19,15 @@
         <maven.compiler.target>21</maven.compiler.target>
 
         <!-- Dependency versions -->
-        <kafka.version>3.6.1</kafka.version>
+        <kafka.version>4.1.1</kafka.version>
         <confluent.version>7.6.0</confluent.version>
-        <nimbus.jose.version>9.37.3</nimbus.jose.version>
-        <bouncycastle.version>1.77</bouncycastle.version>
-        <jackson.version>2.16.1</jackson.version>
-        <slf4j.version>2.0.11</slf4j.version>
-        <junit.version>5.10.1</junit.version>
-        <mockito.version>5.10.0</mockito.version>
-        <ibm.cos.version>2.13.4</ibm.cos.version>
+        <nimbus.jose.version>10.7</nimbus.jose.version>
+        <bouncycastle.version>1.81</bouncycastle.version>
+        <jackson.version>2.21.0</jackson.version>
+        <slf4j.version>2.0.17</slf4j.version>
+        <junit.version>5.12.1</junit.version>
+        <mockito.version>5.21.0</mockito.version>
+        <ibm.cos.version>2.14.3</ibm.cos.version>
     </properties>
 
     <repositories>
