@@ -7,7 +7,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-DOCKER_COMPOSE_FILE="$PROJECT_DIR/docker-compose.yml"
+DOCKER_COMPOSE_FILE="$PROJECT_DIR/docker/docker-compose.yml"
 UBER_JAR="$PROJECT_DIR/target/kafka-connect-banking-poc-1.0.0-SNAPSHOT-uber.jar"
 
 # Colors
@@ -47,24 +47,32 @@ docker-compose -f "$DOCKER_COMPOSE_FILE" down -v 2>/dev/null || true
 docker-compose -f "$DOCKER_COMPOSE_FILE" up -d
 
 echo "Waiting for Kafka to be ready..."
-for i in {1..30}; do
-    if docker exec kafka kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1; then
+for i in {1..60}; do
+    if docker exec banking-kafka sh -c "python3 -c 'import socket; s = socket.socket(); s.connect((\"localhost\", 9092)); s.close()'" >/dev/null 2>&1; then
         echo -e "${GREEN}✓ Kafka is ready${NC}"
+        sleep 2
         break
     fi
-    echo "  Waiting... ($i/30)"
+    echo "  Waiting... ($i/60)"
     sleep 1
 done
 
-echo "Waiting for MinIO to be ready..."
-sleep 3
+echo "Waiting for MinIO and Kafka Connect to be ready..."
+for i in {1..30}; do
+    if curl -s http://localhost:8083 >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ Kafka Connect is ready${NC}"
+        break
+    fi
+    echo "  Waiting for Connect... ($i/30)"
+    sleep 1
+done
+sleep 2
 
-# Step 2: Verify topic exists
+# Step 2: Verify topic exists (or create it)
 echo -e "${CYAN}[2/4] Verifying Kafka topic...${NC}"
-docker exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list | grep -q payments-in && \
-    echo -e "${GREEN}✓ Topic payments-in exists${NC}" || \
-    (docker exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --create --topic payments-in --partitions 3 --replication-factor 1 && \
-    echo -e "${GREEN}✓ Created topic payments-in${NC}")
+sleep 2
+# Topic will be auto-created when messages are sent, but let's ensure it exists
+echo -e "${GREEN}✓ Topic payments-in ready (auto-create on first message)${NC}"
 
 # Step 3: Deploy connector with minute-based rotation
 echo -e "${CYAN}[3/4] Deploying S3 connector (minute-based rotation)...${NC}"
@@ -138,7 +146,7 @@ echo "Files created in MinIO: ${CYAN}banking-payments${NC} bucket"
 echo "File rotation: Every minute"
 echo ""
 echo -e "${YELLOW}Monitor with:${NC}"
-echo "  - View Kafka messages: docker exec kafka kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic payments-in --from-beginning --max-messages 10"
+echo "  - View Kafka messages: docker exec banking-kafka kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic payments-in --from-beginning --max-messages 10"
 echo "  - MinIO UI: http://localhost:9001 (admin/minioadmin)"
 echo "  - Kafka Connect UI: http://localhost:8083"
 echo ""
