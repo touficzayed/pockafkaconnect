@@ -1,0 +1,7 @@
+FROM confluentinc/cp-kafka-connect-base:8.1.0
+
+# Copy only our connector and its dependencies
+COPY target/banking-kafka-connect-plugin/kafka-connect-banking-poc-1.0.0-SNAPSHOT.jar /usr/local/share/java/
+COPY target/banking-kafka-connect-plugin/lib/*.jar /usr/local/share/java/
+
+ENV CONNECT_PLUGIN_PATH=/usr/local/share/java

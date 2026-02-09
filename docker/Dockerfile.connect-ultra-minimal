@@ -1,0 +1,31 @@
+FROM eclipse-temurin:21-jre
+
+# Install bash for easier debugging
+RUN apt-get update && apt-get install -y bash curl && rm -rf /var/lib/apt/lists/*
+
+# Download Kafka
+RUN mkdir -p /opt/kafka && cd /opt/kafka && \
+    curl -s https://archive.apache.org/dist/kafka/4.1.1/kafka_2.13-4.1.1.tgz | tar xz --strip=1
+
+# Create plugin directory
+RUN mkdir -p /plugins
+
+# Copy only our connector
+COPY target/banking-kafka-connect-plugin/kafka-connect-banking-poc-1.0.0-SNAPSHOT.jar /plugins/
+COPY target/banking-kafka-connect-plugin/lib/*.jar /plugins/
+
+# Create minimal config
+RUN mkdir -p /etc/kafka && cat > /etc/kafka/connect-distributed.properties << 'CONFIG'
+bootstrap.servers=kafka:29092
+group.id=banking-connect-group
+key.converter=org.apache.kafka.connect.json.JsonConverter
+value.converter=org.apache.kafka.connect.json.JsonConverter
+internal.key.converter=org.apache.kafka.connect.json.JsonConverter
+internal.value.converter=org.apache.kafka.connect.json.JsonConverter
+rest.port=8083
+rest.advertised.host.name=kafka-connect
+plugin.path=/plugins
+CONFIG
+
+EXPOSE 8083
+CMD ["/opt/kafka/bin/connect-distributed.sh", "/etc/kafka/connect-distributed.properties"]
