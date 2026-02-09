@@ -2,41 +2,19 @@ version: '3.8'
 
 services:
   # ====================================================================
-  # ZOOKEEPER
-  # ====================================================================
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.6.0
-    hostname: zookeeper
-    container_name: banking-zookeeper
-    ports:
-      - "2181:2181"
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-      ZOOKEEPER_LOG4J_ROOT_LOGLEVEL: WARN
-    volumes:
-      - zookeeper-data:/var/lib/zookeeper/data
-      - zookeeper-logs:/var/lib/zookeeper/log
-    networks:
-      - banking-network
-
-  # ====================================================================
-  # KAFKA BROKER
+  # KAFKA BROKER (KRaft mode - no ZooKeeper)
   # ====================================================================
   kafka:
-    image: confluentinc/cp-kafka:7.6.0
+    image: confluentinc/cp-kafka:8.1.0
     hostname: kafka
     container_name: banking-kafka
-    depends_on:
-      - zookeeper
     ports:
       - "9092:9092"
       - "9101:9101"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
@@ -45,15 +23,22 @@ services:
       KAFKA_JMX_HOSTNAME: localhost
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
       KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
+      # KRaft settings
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_LISTENERS: 'PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
     volumes:
       - kafka-data:/var/lib/kafka/data
     networks:
       - banking-network
     healthcheck:
-      test: ["CMD", "bash", "-c", "echo PING | nc localhost 9092"]
+      test: ["CMD", "bash", "-c", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
       interval: 10s
-      timeout: 5s
-      retries: 5
+      timeout: 10s
+      retries: 10
 
   # ====================================================================
   # KAFKA CONNECT
@@ -65,8 +50,10 @@ services:
     hostname: kafka-connect
     container_name: banking-kafka-connect
     depends_on:
-      - kafka
-      - minio
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     ports:
       - "8083:8083"
     environment:
@@ -138,7 +125,7 @@ services:
   # MINIO CLIENT (for bucket creation)
   # ====================================================================
   minio-init:
-    image: minio/mc:RELEASE.2024-01-18T07-03-39Z
+    image: minio/mc:latest
     container_name: banking-minio-init
     depends_on:
       minio:
@@ -160,11 +147,12 @@ services:
   # SCHEMA REGISTRY (Optional - useful for Avro support in future)
   # ====================================================================
   schema-registry:
-    image: confluentinc/cp-schema-registry:7.6.0
+    image: confluentinc/cp-schema-registry:8.1.0
     hostname: schema-registry
     container_name: banking-schema-registry
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     ports:
       - "8081:8081"
     environment:
@@ -184,8 +172,10 @@ services:
     image: provectuslabs/kafka-ui:latest
     container_name: banking-kafka-ui
     depends_on:
-      - kafka
-      - kafka-connect
+      kafka:
+        condition: service_healthy
+      kafka-connect:
+        condition: service_healthy
     ports:
       - "8080:8080"
     environment:
@@ -211,10 +201,6 @@ networks:
 # VOLUMES
 # ====================================================================
 volumes:
-  zookeeper-data:
-    name: banking-zookeeper-data
-  zookeeper-logs:
-    name: banking-zookeeper-logs
   kafka-data:
     name: banking-kafka-data
   minio-data:
