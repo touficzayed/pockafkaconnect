@@ -60,8 +60,8 @@ services:
   # ====================================================================
   kafka-connect:
     build:
-      context: .
-      dockerfile: Dockerfile.kafka-connect
+      context: ..
+      dockerfile: docker/Dockerfile.kafka-connect
     hostname: kafka-connect
     container_name: banking-kafka-connect
     depends_on:

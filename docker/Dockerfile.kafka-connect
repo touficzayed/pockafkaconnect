@@ -1,3 +1,11 @@
+FROM maven:3.9-eclipse-temurin-11 AS builder
+
+# Build the banking Kafka project
+WORKDIR /build
+COPY pom.xml .
+COPY src ./src
+RUN mvn clean package -DskipTests -q 2>&1 | tail -5
+
 FROM maven:3.9-eclipse-temurin-11 AS partitioner-builder
 
 # Clone and build the field-and-time-partitioner
@@ -13,3 +21,6 @@ RUN confluent-hub install --no-prompt confluentinc/kafka-connect-s3:10.5.13
 
 # Copy the field-and-time-partitioner JAR to the S3 connector lib
 COPY --from=partitioner-builder /build/kafka-connect-field-and-time-partitioner/target/*.jar /usr/share/confluent-hub-components/confluentinc-kafka-connect-s3/lib/
+
+# Copy the banking Kafka transforms JAR to plugins
+COPY --from=builder /build/target/kafka-connect-banking-poc-*.jar /usr/share/java/
