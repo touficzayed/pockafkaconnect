@@ -135,10 +135,10 @@ services:
     entrypoint: >
       /bin/sh -c "
       sleep 5;
-      /usr/bin/mc config host add minio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc alias set minio http://minio:9000 minioadmin minioadmin;
       /usr/bin/mc mb --ignore-existing minio/banking-payments;
       /usr/bin/mc mb --ignore-existing minio/banking-config;
-      /usr/bin/mc policy set download minio/banking-payments;
+      /usr/bin/mc anonymous set download minio/banking-payments;
       echo 'MinIO buckets created successfully';
       exit 0;
       "
