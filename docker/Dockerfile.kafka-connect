@@ -1,29 +1,21 @@
 FROM maven:3.9-eclipse-temurin-21 AS builder
 
-# Build the banking Kafka project
+# Build the banking Kafka project (includes custom partitioner)
 WORKDIR /build
 COPY pom.xml .
 COPY src ./src
 RUN mvn clean package -DskipTests -q 2>&1 | tail -5
-
-FROM maven:3.9-eclipse-temurin-21 AS partitioner-builder
-
-# Clone and build the field-and-time-partitioner
-WORKDIR /build
-RUN git clone --depth 1 https://github.com/canelmas/kafka-connect-field-and-time-partitioner.git && \
-    cd kafka-connect-field-and-time-partitioner && \
-    mvn clean package -DskipTests -q
 
 FROM confluentinc/cp-kafka-connect:8.1.0
 
 # Install the S3 connector from Confluent Hub
 RUN confluent-hub install --no-prompt confluentinc/kafka-connect-s3:12.0.1
 
-# Copy the field-and-time-partitioner JAR to the S3 connector lib
-COPY --from=partitioner-builder /build/kafka-connect-field-and-time-partitioner/target/*.jar /usr/share/confluent-hub-components/confluentinc-kafka-connect-s3/lib/
-
 # Copy all dependencies to Kafka Connect classpath
 COPY --from=builder /build/target/dependency/*.jar /usr/share/java/
 
-# Copy the connector JAR (without dependencies - they're now in classpath)
+# Copy the connector JAR (includes custom partitioner and SMTs)
 COPY --from=builder /build/target/kafka-connect-banking-poc-*.jar /usr/share/java/
+
+# Also copy to S3 connector lib for partitioner to be found
+COPY --from=builder /build/target/kafka-connect-banking-poc-*.jar /usr/share/confluent-hub-components/confluentinc-kafka-connect-s3/lib/
