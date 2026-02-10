@@ -111,9 +111,15 @@ EOF
         # Save passphrase for reference
         echo "TestPassword123" > "$KEYS_DIR/pgp/passphrase.txt"
 
+        # Create per-bank symlinks to the generic public key
+        for bank in bnk001 bnk002 bnk003 bnk004 bnk005 hsbc bnpp socgen; do
+            ln -sf recipient-public.asc "$KEYS_DIR/pgp/${bank}-public.asc"
+        done
+
         echo "✓ Generated PGP key pair"
         echo "  Email: test@banking-poc.local"
         echo "  Passphrase: TestPassword123 (saved in passphrase.txt)"
+        echo "  Per-bank symlinks created for: bnk001-bnk005, hsbc, bnpp, socgen"
     fi
 fi
 

@@ -8,11 +8,11 @@
         "reason": "BNK001 ne veut pas stocker de PAN, même chiffré (conformité stricte)"
       },
       "pgp_encryption": {
-        "enabled": true,
+        "enabled": false,
         "public_key_path": "/keys/pgp/bnk001-public.asc",
         "armor": true,
-        "rules": "PAYMENT:*:ENCRYPT,REFUND:*:ENCRYPT,*:*:ENCRYPT",
-        "reason": "Chiffrement PGP obligatoire pour tous les fichiers"
+        "rules": "*:*:SKIP",
+        "reason": "PGP désactivé pour la démo - seul BNPP PAYMENT est chiffré"
       },
       "s3_config": {
         "bucket": "banking-payments",
@@ -29,11 +29,11 @@
         "reason": "BNK002 déchiffre le PAN pour traitement interne (système legacy)"
       },
       "pgp_encryption": {
-        "enabled": true,
+        "enabled": false,
         "public_key_path": "/keys/pgp/bnk002-public.asc",
         "armor": true,
-        "rules": "PAYMENT:*:ENCRYPT,REFUND:*:ENCRYPT,*:*:ENCRYPT",
-        "reason": "PAN en clair mais fichier chiffré en PGP pour sécurité double"
+        "rules": "*:*:SKIP",
+        "reason": "PGP désactivé pour la démo - seul BNPP PAYMENT est chiffré"
       },
       "s3_config": {
         "bucket": "banking-payments",
@@ -53,11 +53,11 @@
         "reason": "BNK003 re-chiffre avec sa propre clé publique pour isolation"
       },
       "pgp_encryption": {
-        "enabled": true,
+        "enabled": false,
         "public_key_path": "/keys/pgp/bnk003-public.asc",
         "armor": false,
-        "rules": "PAYMENT:*:ENCRYPT,REFUND:*:ENCRYPT,*:*:ENCRYPT",
-        "reason": "Chiffrement PGP binaire pour optimiser l'espace"
+        "rules": "*:*:SKIP",
+        "reason": "PGP désactivé pour la démo - seul BNPP PAYMENT est chiffré"
       },
       "s3_config": {
         "bucket": "banking-payments",
@@ -71,11 +71,11 @@
         "reason": "BNK004 n'envoie jamais de PAN dans les messages (pas de champ PAN)"
       },
       "pgp_encryption": {
-        "enabled": true,
+        "enabled": false,
         "public_key_path": "/keys/pgp/bnk004-public.asc",
         "armor": true,
-        "rules": "PAYMENT:*:ENCRYPT,REFUND:*:ENCRYPT,*:*:ENCRYPT",
-        "reason": "Chiffrement PGP pour conformité réglementaire"
+        "rules": "*:*:SKIP",
+        "reason": "PGP désactivé pour la démo - seul BNPP PAYMENT est chiffré"
       },
       "s3_config": {
         "bucket": "banking-payments",
@@ -93,11 +93,11 @@
         "reason": "BNK005 déchiffre et tokenise le PAN (PCI-DSS Level 1)"
       },
       "pgp_encryption": {
-        "enabled": true,
+        "enabled": false,
         "public_key_path": "/keys/pgp/bnk005-public.asc",
         "armor": true,
-        "rules": "PAYMENT:*:ENCRYPT,REFUND:*:ENCRYPT,*:*:ENCRYPT",
-        "reason": "Double chiffrement: PGP + S3 pour sécurité maximale"
+        "rules": "*:*:SKIP",
+        "reason": "PGP désactivé pour la démo - seul BNPP PAYMENT est chiffré"
       },
       "s3_config": {
         "bucket": "banking-payments",
@@ -112,11 +112,11 @@
         "reason": "HSBC masque les 6 premiers et 4 derniers chiffres"
       },
       "pgp_encryption": {
-        "enabled": true,
+        "enabled": false,
         "public_key_path": "/keys/pgp/hsbc-public.asc",
         "armor": true,
-        "rules": "PAYMENT:*:ENCRYPT,*:*:ENCRYPT",
-        "reason": "Chiffrement PGP pour les paiements"
+        "rules": "*:*:SKIP",
+        "reason": "PGP désactivé pour la démo - seul BNPP PAYMENT est chiffré"
       },
       "s3_config": {
         "bucket": "banking-payments",
@@ -136,8 +136,8 @@
         "enabled": true,
         "public_key_path": "/keys/pgp/bnpp-public.asc",
         "armor": true,
-        "rules": "PAYMENT:*:ENCRYPT,REFUND:*:ENCRYPT,TRANSFER:*:ENCRYPT,*:*:SKIP",
-        "reason": "PAN en clair + PGP pour certains types d'événement"
+        "rules": "PAYMENT:*:ENCRYPT,*:*:SKIP",
+        "reason": "Démo: seuls les PAYMENT BNPP sont chiffrés en PGP"
       },
       "s3_config": {
         "bucket": "banking-payments",
@@ -152,11 +152,11 @@
         "reason": "SOCGEN supprime complètement le PAN"
       },
       "pgp_encryption": {
-        "enabled": true,
+        "enabled": false,
         "public_key_path": "/keys/pgp/socgen-public.asc",
         "armor": true,
-        "rules": "*:*:ENCRYPT",
-        "reason": "PAN supprimé + chiffrement PGP pour tous les messages"
+        "rules": "*:*:SKIP",
+        "reason": "PGP désactivé pour la démo - seul BNPP PAYMENT est chiffré"
       },
       "s3_config": {
         "bucket": "banking-payments",

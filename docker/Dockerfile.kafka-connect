@@ -11,11 +11,9 @@ FROM confluentinc/cp-kafka-connect:8.1.0
 # Install the S3 connector from Confluent Hub
 RUN confluent-hub install --no-prompt confluentinc/kafka-connect-s3:12.0.1
 
-# Copy all dependencies to Kafka Connect classpath
-COPY --from=builder /build/target/dependency/*.jar /usr/share/java/
-
-# Copy the connector JAR (includes custom partitioner and SMTs)
-COPY --from=builder /build/target/kafka-connect-banking-poc-*.jar /usr/share/java/
-
-# Also copy to S3 connector lib for partitioner to be found
+# Copy all artifacts to the S3 connector lib directory so they share the same classloader
+# This includes: banking POC JAR (partitioner, SMTs) + BouncyCastle (for PGP encryption)
 COPY --from=builder /build/target/kafka-connect-banking-poc-*.jar /usr/share/confluent-hub-components/confluentinc-kafka-connect-s3/lib/
+COPY --from=builder /build/target/dependency/bcpg-*.jar /usr/share/confluent-hub-components/confluentinc-kafka-connect-s3/lib/
+COPY --from=builder /build/target/dependency/bcprov-*.jar /usr/share/confluent-hub-components/confluentinc-kafka-connect-s3/lib/
+COPY --from=builder /build/target/dependency/bcutil-*.jar /usr/share/confluent-hub-components/confluentinc-kafka-connect-s3/lib/

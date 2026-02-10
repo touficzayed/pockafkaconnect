@@ -68,8 +68,21 @@ wait_for_service() {
     return 1
 }
 
+generate_keys_if_needed() {
+    if [ ! -f "$PROJECT_DIR/config/local/keys/pgp/bnpp-public.asc" ]; then
+        print_step "Generating test cryptographic keys..."
+        bash "$PROJECT_DIR/scripts/generate-test-keys.sh"
+        print_success "Keys generated"
+    else
+        print_success "Cryptographic keys already exist"
+    fi
+}
+
 start_environment() {
     print_header "Starting Environment"
+
+    # Generate keys if needed (for PGP encryption demo)
+    generate_keys_if_needed
 
     # Check if already running
     if curl -s "$CONNECT_URL" > /dev/null 2>&1; then
@@ -127,7 +140,11 @@ deploy_connector() {
         "rotate.interval.ms": "10000",
         "partition.duration.ms": "3600000",
         "storage.class": "io.confluent.connect.s3.storage.S3Storage",
-        "format.class": "io.confluent.connect.s3.format.json.JsonFormat",
+        "format.class": "com.banking.kafka.format.PGPEncryptedJsonFormat",
+        "format.pgp.config.file": "/config/banks/bank-config.json",
+        "format.pgp.institution.header": "X-Institution-Id",
+        "format.pgp.event.type.header": "X-Event-Type",
+        "format.pgp.event.version.header": "X-Event-Version",
         "partitioner.class": "com.banking.kafka.partitioner.FieldAndTimeBasedPartitioner",
         "partition.field.name": "headers.X-Institution-Id,headers.X-Event-Type,headers.X-Event-Version",
         "partition.field.format.path": "true",
@@ -138,17 +155,19 @@ deploy_connector() {
         "key.converter": "org.apache.kafka.connect.storage.StringConverter",
         "value.converter": "org.apache.kafka.connect.json.JsonConverter",
         "value.converter.schemas.enable": "false",
-        "transforms": "transformPAN,extractHeaders",
-        "transforms.transformPAN.type": "com.banking.kafka.transforms.PANTransformationSMT",
-        "transforms.transformPAN.source.field": "encryptedPrimaryAccountNumber",
-        "transforms.transformPAN.default.strategy": "MASK",
-        "transforms.transformPAN.rules": "BNK001:*:*:MASK,BNK002:*:*:MASK,BNK003:*:*:MASK",
+        "transforms": "extractHeaders,transformPAN",
         "transforms.extractHeaders.type": "com.banking.kafka.transforms.HeadersToPayloadTransform",
         "transforms.extractHeaders.mandatory.headers": "X-Institution-Id,X-Event-Type,X-Event-Version,X-Event-Id",
         "transforms.extractHeaders.target.field": "headers",
         "transforms.extractHeaders.fail.on.missing.mandatory": "false",
         "transforms.extractHeaders.wrap.payload": "true",
         "transforms.extractHeaders.payload.field": "payload",
+        "transforms.transformPAN.type": "com.banking.kafka.transforms.PANTransformationSMT",
+        "transforms.transformPAN.source.field": "encryptedPrimaryAccountNumber",
+        "transforms.transformPAN.default.strategy": "MASK",
+        "transforms.transformPAN.rules": "BNK001:*:*:REMOVE,BNPP:*:*:DECRYPT,SOCGEN:*:*:REMOVE,*:*:*:MASK",
+        "transforms.transformPAN.institution.id.header": "X-Institution-Id",
+        "transforms.transformPAN.private.key.path": "/keys/my-institution/private-key.pem",
         "store.url": "http://minio:9000",
         "aws.access.key.id": "minioadmin",
         "aws.secret.access.key": "minioadmin",
@@ -219,7 +238,8 @@ show_results() {
     echo ""
     echo -e "  ${YELLOW}Key features demonstrated:${NC}"
     echo "  - Hierarchical S3 partitioning (Institution/EventType/Version/Date)"
-    echo "  - PAN masking (card numbers hidden)"
+    echo "  - Multi-bank PAN transformation (REMOVE, DECRYPT, MASK per bank)"
+    echo "  - PGP encryption: ONLY BNPP PAYMENT events are encrypted"
     echo "  - Kafka headers extracted to JSON payload"
     echo ""
 }
