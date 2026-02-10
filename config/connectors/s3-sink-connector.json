@@ -13,7 +13,7 @@
 
     "storage.class": "io.confluent.connect.s3.storage.S3Storage",
     "format.class": "io.confluent.connect.s3.format.json.JsonFormat",
-    "partitioner.class": "com.canelmas.kafka.connect.FieldAndTimeBasedPartitioner",
+    "partitioner.class": "com.banking.kafka.partitioner.FieldAndTimeBasedPartitioner",
     "partition.field.name": "headers.X-Institution-Id,headers.X-Event-Type,headers.X-Event-Version",
     "partition.field.format.path": "false",
     "path.format": "'year'=YYYY/'month'=MM/'day'=dd/'hour'=HH",
