@@ -179,15 +179,15 @@ public class PGPEncryptedJsonFormat extends JsonFormat {
                 String outputFilename;
 
                 if (shouldEncrypt(currentInstitution, currentEventType, currentEventVersion)) {
-                    // Encrypt the data
+                    // Encrypt the data and add .json.pgp extension
                     outputData = encryptData(data, currentInstitution);
-                    outputFilename = filename;
+                    outputFilename = filename + ".json.pgp";
                     log.info("Encrypted {} bytes for institution {} (event: {}/{})",
                             data.length, currentInstitution, currentEventType, currentEventVersion);
                 } else {
-                    // Write unencrypted - change extension
+                    // Write unencrypted with .json extension
                     outputData = data;
-                    outputFilename = filename.replace(".json.pgp", ".json");
+                    outputFilename = filename + ".json";
                     log.debug("Writing {} bytes unencrypted for institution {} (event: {}/{})",
                             data.length, currentInstitution, currentEventType, currentEventVersion);
                 }
